@@ -1,26 +1,51 @@
 @import "tailwindcss";
 
+@theme {
+  /* Define colors as hex for full utility support */
+  --color-forest: #1b4332;
+  --color-leaf: #2d6a4f;
+  --color-sand: #fdf6e3;
+  --color-saffron: #e67e22;
+  --color-earth: #432818;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fdf6e3; /* Using hex directly to avoid variable collision */
+  --foreground: #1b4332;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'serif'; /* Ensure you have a serif font loaded */
+}
+
+/* Custom UI Components using @apply */
+
+.badge-vedic {
+  /* Fix: Use the forest/leaf colors for a professional look */
+  @apply bg-saffron/10 text-saffron border border-saffron/20 px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider;
+}
+
+.btn-vedic {
+  @apply bg-forest text-sand px-8 py-3 rounded-full font-bold 
+         hover:bg-leaf transition-all duration-300 shadow-md 
+         inline-flex items-center justify-center gap-2 active:scale-95;
+}
+
+.doctor-card {
+  @apply bg-white border-l-8 border-forest rounded-r-[40px] p-8 md:p-12 shadow-2xl relative overflow-hidden;
+}
+
+.stat-box {
+  @apply flex flex-col items-center justify-center p-4 bg-sand rounded-2xl border border-forest/5;
+}
+
+.list-herbal {
+  @apply space-y-3 list-none;
+}
+
+.list-herbal li {
+  @apply flex items-start gap-3 before:content-['🌿'] before:text-sm;
 }
