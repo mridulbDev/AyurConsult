@@ -1,56 +1,64 @@
+
+
 import { NextResponse } from 'next/server';
-const twilio = require('twilio');
+import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils';
+import twilio from 'twilio';
+
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    // 1. Get the raw text for signature verification
+    const rawBody = await req.text(); 
+    const signature = req.headers.get('x-razorpay-signature');
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    // 1. Only act if payment is successful
-    if (body.event === 'payment.captured') {
-      const bookingId = body.payload.payment.entity.notes.bookingId;
-      const patientPhone = body.payload.payment.entity.contact;
+    // 2. Verify it's actually from Razorpay
+    const isValid = validateWebhookSignature(rawBody, signature!, secret!);
+    if (!isValid) {
+      return NextResponse.json({ status: 'unauthorized' }, { status: 401 });
+    }
 
-      // 2. FETCH FULL DATA FROM CAL.COM (Using V1 to get symptoms/responses)
+    // 3. Parse the rawBody string into a JSON object
+    const body = JSON.parse(rawBody);
+
+    // 4. Filter for successful payment events
+    if (body.event === 'payment.captured' || body.event === 'payment_link.paid') {
+      const payment = body.payload.payment.entity;
+      const bookingId = payment.notes.bookingId;
+      const patientPhone = payment.contact;
+
+      // 5. Fetch details from Cal.com (V1)
       const calRes = await fetch(`https://api.cal.com/v1/bookings/${bookingId}?apiKey=${process.env.CAL_API_KEY}`);
       const calData = await calRes.json();
-
-      if (!calData.booking) throw new Error("Booking not found on Cal.com");
 
       const { location, attendees, responses, startTime } = calData.booking;
       const patientName = attendees[0].name;
       const symptoms = responses.symptoms || "No symptoms provided";
-      // Format the date for the message
       const appointmentTime = new Date(startTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
-      // 3. CONFIRM THE BOOKING (Moving it from 'Pending' to 'Confirmed')
-      // Note: V2 API is usually required for the /confirm endpoint
-      const confirmRes = await fetch(`https://api.cal.com/v2/bookings/${bookingId}/confirm`, {
+      // 6. Confirm the seat in Cal.com (V2)
+      await fetch(`https://api.cal.com/v2/bookings/${bookingId}/confirm`, {
         method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${process.env.CAL_API_KEY}`, // V2 uses Bearer token usually
-          'Content-Type': 'application/json' 
-        }
+        headers: { 'Authorization': `Bearer ${process.env.CAL_API_KEY}`, 'Content-Type': 'application/json' }
       });
 
-      if (confirmRes.ok) {
-        // 4. SEND WHATSAPP TO PATIENT
-        await client.messages.create({
-          from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, 
-          to: `whatsapp:${patientPhone}`,
-          body: `Pranam ${patientName}! Your appointment with Prof. Mahesh Dixit is CONFIRMED.\n\n📅 Time: ${appointmentTime}\n📍 Mode/Link: ${location}\n\nPlease join 5 mins early.`
-        });
+      // 7. Send WhatsApp via Twilio
+      await client.messages.create({
+        from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`, 
+        to: `whatsapp:${patientPhone}`,
+        body: `Pranam ${patientName}! Your appointment with Prof. Mahesh Dixit is CONFIRMED.\n📅 Time: ${appointmentTime}\n📍 Link: ${location}`
+      });
 
-        // 5. SEND WHATSAPP TO DR. DIXIT
-        await client.messages.create({
+      await client.messages.create({
           from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
           to: `whatsapp:+91${process.env.DR_DIXIT_PHONE}`, 
           body: `New Confirmed Booking!\n\nPatient: ${patientName}\nTime: ${appointmentTime}\nSymptoms: ${symptoms}\nMode: ${location}`
         });
-      }
     }
 
+    // Always tell Razorpay "Message Received"
     return NextResponse.json({ status: 'ok' });
   } catch (error) {
     console.error("Webhook Error:", error);
