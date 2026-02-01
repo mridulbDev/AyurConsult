@@ -10,8 +10,8 @@ export async function POST(req: Request) {
 
   if (!isValid) return new Response('Invalid Signature', { status: 400 });
 
-  const { payload } = JSON.parse(body);
-  const payment = payload.payment.entity;
+  const  payload  = JSON.parse(body);
+  const payment = payload.payload.payment.entity;
   const bookingId = payment.notes.booking_id; 
 
   const auth = new google.auth.JWT({
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
         html: `
           <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <h2>Namaste ${patientData.name},</h2>
-            <p>Your Ayurvedic consultation is confirmed.</p>
+            <p>Your Consultation with Dr. Dixit is confirmed.</p>
             <p><strong>Meeting Link:</strong> <a href="${meetLink}">${meetLink}</a></p>
             <p><strong>Reschedule Link:</strong> <a href="${rescheduleLink}">Change Date/Time</a></p>
             <br />
