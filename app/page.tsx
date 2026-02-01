@@ -1,264 +1,272 @@
-"use client"; // Add this at the very top for the FAQ toggles
+"use client";
 import { useState } from 'react';
 import Image from 'next/image';
+import { useLanguage } from './context/LanguageContext';
 import Link from 'next/link';
-import { Award, GraduationCap, Leaf, ShieldCheck, Users, Plus, Minus, ChevronRight } from 'lucide-react';
+import { Award, GraduationCap, Leaf, ShieldCheck, Users, Plus, Globe, CheckCircle2, BookOpen, Stethoscope } from 'lucide-react';
 
 export default function HomePage() {
-
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const disorders = [
-    { en: "Rasavaha Srotas Disorders", hi: "रसवह स्रोतस विकार", img: "RasavahaSrotasDisorders.png" },
-    { en: "Udakavaha & Svedavaha Srotas", hi: "उदकवह व स्वेदवह स्रोतस विकार", img: "Udakavaha&SvedavahaSrotasDisorders.png" },
-    { en: "GIT Disorders", hi: "अन्नवह व पुरीषवह स्रोतस विकार", img: "GITDisorders.png" },
-    { en: "Liver & Spleen Disorders", hi: "यकृत, प्लीहा विकार", img: "Liver&SpleenDisorders.png" },
-    { en: "Respiratory Disorders", hi: "प्राणवह स्रोतस विकार", img: "RespiratoryDisorders.png" },
-    { en: "Cardiovascular Disease (CVD)", hi: "हृदय रोग विकार", img: "CardiovascularDisease.png" },
-    { en: "Urologic Disorders", hi: "मूत्रवह स्रोतस", img: "UrologicDisorders.png" },
-    { en: "Male Reproductive disorders", hi: "पुरुष जनन तंत्र विकार", img: "MaleReproductiveDisorders.png" },
-    { en: "Female Reproductive disorders", hi: "स्त्री जनन तंत्र विकार", img: "FemaleReproductivedisorders.png" },
-    { en: "Obstetrical disorders", hi: "प्रसूति तंत्र विकार", img: "Obstetricaldisorders.png" },
-    { en: "Pediatric disorders", hi: "बाल रोग विकार", img: "PediatricDisorders.png" },
-    { en: "Skeletal and joint disorders", hi: "अस्थि संधिगत विकार", img: "Skeletalandjointdisorders.png" },
-    { en: "Nervous system disorders", hi: "वात व्याधि / तंत्रिका तंत्र विकार", img: "Nervoussystemdisorders.png" },
-    { en: "Psychiatric disorders", hi: "मनोरोग / मानसिक विकार", img: "Psychiatricdisorders.png" },
-    { en: "Eye disorders", hi: "नेत्र विकार", img: "Eyedisorders.png" },
-    { en: "Ear disorders", hi: "कर्ण विकार", img: "Eardisorders.png" },
-    { en: "Nasal disorders", hi: "नासा विकार", img: "Nasaldisorders.png" },
-    { en: "Throat disorders", hi: "गल रोग", img: "Throatdisorders.png" },
-    { en: "Lip or Oral disorders", hi: "ओष्ठ रोग", img: "LiporOraldisorders.png" },
-    { en: "Dental & Periodontal disorders", hi: "दन्त व दन्त मूलगत रोग", img: "Dental&Periodontaldisorders.png" },
-    { en: "Urinary system disorders", hi: "मेदोवह स्रोतस", img: "Urinarysystemdisorders.png" },
-    { en: "Endocrine disorders", hi: "अंत:स्रावी विकार", img: "Endocrinedisorders.png" },
-    { en: "Worm disease", hi: "कृमि रोग", img: "Wormdisease.png" },
-    { en: "Communicable disease", hi: "उपसर्गज व्याधियाँ", img: "Communicabledisease.png" },
-    { en: "Muscular disorders", hi: "मांसवह स्रोतस विकार", img: "Musculardisorders.png" },
-    { en: "Surgical Disorders", hi: "शल्य चिकित्सा विकार", img: "SurgicalDisorders.png" },
-    { en: "Beauty problems", hi: "सौन्दर्य समस्याएं", img: "Beautyproblems.png" },
-    { en: "Head disorders", hi: "शिरो रोग", img: "Headdisorders.png" },
-    { en: "Skin Disorder", hi: "त्वचा रोग", img: "SkinDisorders.png" },
-    { en: "Vitamin Deficiency", hi: "विटामिन की कमी", img: "VitaminDeficiency.png" },
-    { en: "Addiction & Toxicology", hi: "व्यसन मुक्ति एवं विष निवारण", img: "AddictionTreatment&Toxicology.png" }
-  ];
+  const { lang } = useLanguage();
+
   const faqs = [
     {
-      q: "What is Ayurveda?",
-      a: "Ayurveda is a 5,000-year-old system of natural healing that has its origins in the Vedic culture of India. It focuses on balancing the body, mind, and spirit through diet, lifestyle, and herbal remedies."
+      q: lang === 'en' ? "What is Ayurveda?" : "आयुर्वेद क्या है?",
+      a: lang === 'en' ? "Ayurveda is a 5,000-year-old system of natural healing that has its origins in the Vedic culture of India. It focuses on balancing the body, mind, and spirit through diet, lifestyle, and herbal remedies." : "आयुर्वेद प्राकृतिक चिकित्सा की एक 5,000 साल पुरानी प्रणाली है जिसकी उत्पत्ति भारत की वैदिक संस्कृति में हुई है। यह आहार, जीवनशैली और हर्बल उपचार के माध्यम से शरीर, मन और आत्मा को संतुलित करने पर केंद्रित है।"
     },
     {
-      q: "Vata, Pitta aur Kapha क्या होते हैं?",
-      a: "ये तीन दोष (Doshas) हैं जो शरीर की जैविक ऊर्जा को नियंत्रित करते हैं। डॉ. दीक्षित आपकी प्रकृति (Prakriti) के अनुसार भोजन और जीवनशैली का परामर्श देते हैं।"
+      q: lang === 'en' ? "What are Vata, Pitta and Kapha?" : "वात, पित्त और कफ क्या होते हैं?",
+      a: lang === 'en' ? "These are three doshas that govern biological energy. Dr. Dixit provides diet and lifestyle advice according to your Prakriti." : "ये तीन दोष (Doshas) हैं जो शरीर की जैविक ऊर्जा को नियंत्रित करते हैं। डॉ. दीक्षित आपकी प्रकृति (Prakriti) के अनुसार भोजन और जीवनशैली का परामर्श देते हैं।"
     },
     {
-      q: "क्या आयुर्वेदिक उपचार सुरक्षित है?",
-      a: "हाँ, अनुभवी विशेषज्ञों की देखरेख में किया गया आयुर्वेदिक उपचार पूरी तरह सुरक्षित है और इसके कोई दुष्प्रभाव नहीं होते।"
+      q: lang === 'en' ? "Is Ayurvedic treatment safe?" : "क्या आयुर्वेदिक उपचार सुरक्षित है?",
+      a: lang === 'en' ? "Yes, Ayurvedic treatment performed under the supervision of experienced specialists is completely safe and has no side effects." : "हाँ, अनुभवी विशेषज्ञों की देखरेख में किया गया आयुर्वेदिक उपचार पूरी तरह सुरक्षित है और इसके कोई दुष्प्रभाव नहीं होते।"
     },
     {
-      q: "क्या आयुर्वेद में Chronic Diseases का इलाज संभव है?",
-      a: "हाँ, डॉ. दीक्षित मधुमेह, उच्च रक्तचाप, पाचन संबंधी समस्याओं और पुराने दर्द जैसे रोगों का सफल उपचार करते हैं।"
+      q: lang === 'en' ? "Is it possible to treat chronic diseases in Ayurveda?" : "क्या आयुर्वेद में गंभीर रोगों (Chronic Diseases) का इलाज संभव है?",
+      a: lang === 'en' ? "Yes, Dr. Dixit successfully treats diseases such as diabetes, hypertension, digestive problems, and chronic pain." : "हाँ, डॉ. दीक्षित मधुमेह, उच्च रक्तचाप, पाचन संबंधी समस्याओं और पुराने दर्द जैसे रोगों का सफल उपचार करते हैं। "
     }
   ];
+
+  const t = {
+    heroBadge: lang === 'en' ? "25+ Years of Excellence" : "25+ वर्षों का उत्कृष्ट अनुभव",
+    heroTitle: lang === 'en' ? "Expert Ayurvedic" : "विशेषज्ञ आयुर्वेदिक",
+    heroTitleSpan: lang === 'en' ? "Surgical Care" : "शल्य चिकित्सा",
+    heroDesc: lang === 'en' ? "Consult with Prof. Mahesh Dixit, a renowned surgeon and educator blending classical Shalya Tantra with modern medical precision." : "प्रो. महेश दीक्षित से परामर्श लें, जो एक प्रसिद्ध सर्जन और शिक्षक हैं, जो शास्त्रीय शल्य तंत्र को आधुनिक चिकित्सा सटीकता के साथ जोड़ते हैं।",
+    heroCta: lang === 'en' ? "Book Appointment" : "अपॉइंटमेंट बुक करें",
+    blogs: lang === 'en' ? "Read Blogs" : "ब्लॉग पढ़ें",
+    meetDr: lang === 'en' ? "Meet Your Doctor — Prof. Mahesh Dixit" : "अपने डॉक्टर से मिलें — प्रो. महेश दीक्षित",
+    drBio: lang === 'en' ? "Prof. Mahesh Dixit is a renowned Ayurvedic surgeon, educator, and healthcare leader with over 25 years of experience in clinical practice, teaching, research, and administration." : "प्रो. महेश दीक्षित एक प्रसिद्ध आयुर्वेदिक सर्जन, शिक्षक और स्वास्थ्य सेवा क्षेत्र के मार्गदर्शक हैं, जिन्हें नैदानिक अभ्यास, शिक्षण, अनुसंधान और प्रशासन में 25 से अधिक वर्षों का अनुभव प्राप्त है।",
+    stat1: lang === 'en' ? "Theses Guided" : "निर्देशित शोध",
+    stat2: lang === 'en' ? "Global Seminars" : "वैश्विक सेमिनार",
+    stat3: lang === 'en' ? "Plants Distributed" : "पौधे वितरित किए",
+    acadTitle: lang === 'en' ? "Academic Excellence" : "शैक्षणिक उत्कृष्टता",
+    acad1: lang === 'en' ? "Ph.D. in Ayurveda – Rajasthan Ayurveda University" : "आयुर्वेद में पीएचडी (Ph.D.) – राजस्थान आयुर्वेद विश्वविद्यालय",
+    acad2: lang === 'en' ? "M.D. in Shalya Tantra – NIA, Jaipur" : "शल्य तंत्र में एमडी (M.D.) – एनआईए (NIA), जयपुर",
+    acad3: lang === 'en' ? "B.A.M.S. – Mohata College " : "बीएएमएस (B.A.M.S.) – मोहता कॉलेज ",
+    awardTitle: lang === 'en' ? "Key Milestones" : "प्रमुख उपलब्धियां",
+    award1: lang === 'en' ? "Dhanwantari Award (1999) - Govt. of Rajasthan" : "धन्वंतरि पुरस्कार (1999) - राजस्थान सरकार",
+    award2: lang === 'en' ? "Best Teacher Award (2021) - Parul University" : "सर्वश्रेष्ठ शिक्षक पुरस्कार (2021) - पारुल यूनिवर्सिटी",
+    award3: lang === 'en' ? "Bhamashah Award (1991) - Academic Excellence" : "भामाशाह पुरस्कार (1991) - शैक्षणिक उत्कृष्टता",
+    impactTitle: lang === 'en' ? "Community Impact" : "सामुदायिक प्रभाव",
+    specTitle: lang === 'en' ? "Specialized Treatments" : "विशिष्ट उपचार",
+    impactPoint1: lang === 'en' ? "Led 'Ghar Ghar Amrita Abhiyan', distributing 100,000+ medicinal plants." : "'घर-घर अमृता अभियान' का नेतृत्व, 1,00,000+ औषधीय पौधों का वितरण।",
+    impactPoint2: lang === 'en' ? "Ran extensive COVID-19 awareness campaigns (2020-2021)." : "व्यापक कोविड-19 जागरूकता अभियान (2020-2021) का सफल संचालन।",
+    impactPoint3: lang === 'en' ? "Organized 20+ international seminars & 75+ public lectures." : "20+ अंतरराष्ट्रीय सेमिनारों और 75+ सार्वजनिक व्याख्यानों का आयोजन।",
+    whyTitle: lang === 'en' ? "Why Choose Our Consultation?" : "हमारा परामर्श क्यों चुनें?",
+    ctaQuote: lang === 'en' ? "\"We don't just treat the disease — we understand its root cause.\"" : "\"हम केवल बीमारी का इलाज नहीं करते — हम उसके मूल कारण को समझते हैं।\"",
+    ctaDesc: lang === 'en' ? "Start your journey toward authentic, research-based Ayurvedic healing today." : "आज ही प्रामाणिक और शोध-आधारित आयुर्वेदिक चिकित्सा की दिशा में अपनी यात्रा शुरू करें।",
+    ctaBtn: lang === 'en' ? "Book Your Appointment Now" : "अभी अपना परामर्श बुक करें",
+    faqTitle: lang === 'en' ? "Frequently Asked Questions" : "अक्सर पूछे जाने वाले प्रश्न"
+  };
+
+  const whyCards = [
+    { 
+      icon: ShieldCheck, 
+      title: lang === 'en' ? "Surgical Expertise" : "शल्य चिकित्सा विशेषज्ञता", 
+      desc: lang === 'en' ? "Specialist in Ayurvedic surgery, Ksharsutra therapy, and Agnikarma." : "आयुर्वेदिक सर्जरी, क्षारसूत्र चिकित्सा और अग्निकर्म के विशेषज्ञ।" 
+    },
+    { 
+      icon: Award, 
+      title: lang === 'en' ? "Nationally Awarded" : "राष्ट्रीय स्तर पर सम्मानित", 
+      desc: lang === 'en' ? "Recognized by the Govt. of Rajasthan for clinical and academic excellence." : "नैदानिक और शैक्षणिक उत्कृष्टता के लिए राजस्थान सरकार द्वारा मान्यता प्राप्त।" 
+    },
+    { 
+      icon: Globe, 
+      title: lang === 'en' ? "Classical & Modern" : "शास्त्रीय और आधुनिक", 
+      desc: lang === 'en' ? "Combines classical Shalya Tantra with modern medical precision." : "शास्त्रीय शल्य तंत्र को आधुनिक चिकित्सा सटीकता के साथ जोड़ता है।" 
+    },
+    { 
+      icon: Users, 
+      title: lang === 'en' ? "Patient Centered" : "रोगी केंद्रित दृष्टिकोण", 
+      desc: lang === 'en' ? "Customized treatments designed specifically for your body type (Prakriti)." : "विशेष रूप से आपके शरीर के प्रकार (प्रकृति) के लिए डिज़ाइन किए गए व्यक्तिगत उपचार।" 
+    }
+  ];
+
   return (
-    <div className="space-y-24 pb-24">
-      {/* HERO SECTION */}
+    <div className="space-y-16 pb-24 relative overflow-hidden">
+      {/* Hero Section - Image Left, Content Right */}
       <section className="max-w-7xl mx-auto px-6 pt-12 grid md:grid-cols-2 gap-12 items-center">
-        <div className="space-y-6">
-          <div className="badge-vedic">25+ Years of Excellence</div>
-          <h1 className="text-5xl md:text-6xl font-serif font-bold text-forest leading-tight">
-            Expert Ayurvedic <br/> <span className="text-saffron">Surgical Care</span>
-          </h1>
-          <p className="text-xl opacity-90">
-            Consult with <strong>Prof. Mahesh Dixit</strong>, a renowned surgeon and educator 
-            blending classical Shalya Tantra with modern medical precision.
-          </p>
-          <div className="flex gap-4">
-            <Link href="/consultation" className="btn-vedic">Book Appointment</Link>
-            <a href="https://wa.me/..." className="border-2 border-forest px-8 py-3 rounded-full font-bold hover:bg-forest hover:text-sand transition-all">WhatsApp</a>
-          </div>
+        {/* Image now comes first in DOM for mobile/tablet, will be left on md+ screens */}
+        <div className="relative h-[500px] rounded-[40px] overflow-hidden shadow-2xl border-4 border-white animate-float order-2 md:order-1">
+          <Image src="/images/drdixit.png" alt="Prof. Mahesh Dixit" fill className="object-cover" priority />
         </div>
-        <div className="relative h-[500px] rounded-[40px] overflow-hidden shadow-2xl border-4 border-white">
-          <Image src="/images/doctor-mahesh.jpg" alt="Prof. Mahesh Dixit" fill className="object-cover" />
+
+        {/* Text Content comes second in DOM, will be right on md+ screens */}
+        <div className="space-y-6 animate-fade-up order-1 md:order-2">
+          <div className="badge-vedic">{t.heroBadge}</div>
+          <h1 className="text-5xl md:text-6xl font-serif font-bold text-forest leading-tight">
+            {t.heroTitle} <br/> <span className="text-saffron">{t.heroTitleSpan}</span>
+          </h1>
+          <p className="text-xl opacity-90">{t.heroDesc}</p>
+          <div className="flex gap-4">
+            <Link href="/consultation" className="btn-vedic">{t.heroCta}</Link>
+            <Link href="/blogs" className="border-2 border-forest px-8 py-3 rounded-full font-bold hover:bg-forest hover:text-sand transition-all flex items-center gap-2">
+               <BookOpen size={18} /> {t.blogs}
+            </Link>
+          </div>
         </div>
       </section>
 
+      {/* DOCTOR BIO & COMMUNITY IMPACT SECTION */}
       <section className="max-w-7xl mx-auto px-6">
-        <div className="doctor-card">
+        <div className="relative bg-white/40 backdrop-blur-md border-l-8 border-saffron rounded-r-[48px] p-8 md:p-12 shadow-xl animate-fade-up">
           <div className="grid md:grid-cols-3 gap-12">
             <div className="md:col-span-2 space-y-6">
-              <h2 className="text-3xl font-serif font-bold text-forest">Meet Your Doctor — Prof. Mahesh Dixit</h2>
-              <p className="leading-relaxed">
-                Prof. Mahesh Dixit is a renowned Ayurvedic surgeon, educator, and healthcare leader with over 
-                <strong> 23 years of experience</strong> in clinical practice, teaching, research, and administration.
-              </p>
+              <h2 className="text-3xl font-serif font-bold text-forest tracking-tight">{t.meetDr}</h2>
+              <p className="leading-relaxed text-forest/90">{t.drBio}</p>
               
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="stat-box">
+                <div className="stat-box-sand">
                   <span className="text-2xl font-bold text-saffron">25+</span>
-                  <span className="text-xs uppercase text-center">Theses Guided</span>
+                  <span className="text-xs uppercase text-center font-bold text-forest">{t.stat1}</span>
                 </div>
-                <div className="stat-box">
-                  <span className="text-2xl font-bold text-saffron">50+</span>
-                  <span className="text-xs uppercase text-center">Papers & Books</span>
+                <div className="stat-box-sand">
+                  <span className="text-2xl font-bold text-saffron">95+</span>
+                  <span className="text-xs uppercase text-center font-bold text-forest">{t.stat2}</span>
                 </div>
-                <div className="stat-box">
+                <div className="stat-box-sand">
                   <span className="text-2xl font-bold text-saffron">100k+</span>
-                  <span className="text-xs uppercase text-center">Plants Distributed</span>
+                  <span className="text-xs uppercase text-center font-bold text-forest">{t.stat3}</span>
                 </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-8 pt-4">
                 <div className="space-y-4">
-                  <h4 className="font-bold flex items-center gap-2 text-saffron"><GraduationCap size={20} /> Academic Excellence</h4>
-                  <ul className="list-herbal text-sm">
-                    <li><strong>Ph.D. in Ayurveda</strong> – Rajasthan Ayurveda University</li>
-                    <li><strong>M.D. in Shalya Tantra</strong> – NIA, Jaipur</li>
-                    <li><strong>B.A.M.S.</strong> – Mohata College (University Topper)</li>
+                  <h4 className="font-bold flex items-center gap-2 text-saffron uppercase tracking-wider text-sm"><GraduationCap size={20} /> {t.acadTitle}</h4>
+                  <ul className="list-herbal text-sm text-forest/80">
+                    <li>{t.acad1}</li>
+                    <li>{t.acad2}</li>
+                    <li>{t.acad3}</li>
                   </ul>
                 </div>
                 <div className="space-y-4">
-                  <h4 className="font-bold flex items-center gap-2 text-saffron"><Award size={20} /> Key Milestones</h4>
-                  <ul className="list-herbal text-sm">
-                    <li>Dhanwantari Award (1999) - Govt. of Rajasthan</li>
-                    <li>Best Teacher Award (2021) - Parul University</li>
-                    <li>Bhamashah Award (1991) - Academic Excellence</li>
+                  <h4 className="font-bold flex items-center gap-2 text-saffron uppercase tracking-wider text-sm"><Award size={20} /> {t.awardTitle}</h4>
+                  <ul className="list-herbal text-sm text-forest/80">
+                    <li>{t.award1}</li>
+                    <li>{t.award2}</li>
+                    <li>{t.award3}</li>
                   </ul>
                 </div>
               </div>
             </div>
 
-            <div className="bg-sand/50 p-6 rounded-3xl space-y-6 border border-forest/5">
-               <h4 className="font-bold text-forest uppercase tracking-widest text-xs">Community Impact</h4>
-               <div className="space-y-4 text-sm">
-                  <p className="italic">"Led the <strong>Ghar Ghar Amrita Abhiyan</strong>, distributing over 100,000 medicinal plants."</p>
-                  <p className="opacity-80">Ran extensive COVID-19 awareness campaigns and organized 20+ international seminars.</p>
-               </div>
-               <div className="pt-4 border-t border-forest/10">
-                  <h4 className="font-bold mb-2 text-xs">Clinical Expertise</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {['Ksharsutra', 'Agnikarma', 'Jalouka'].map(tag => (
-                      <span key={tag} className="bg-forest/5 text-forest px-2 py-1 rounded text-[10px] font-bold uppercase">{tag}</span>
-                    ))}
-                  </div>
-               </div>
-            </div>
+            {/* COMMUNITY IMPACT & SPECIALIZED TREATMENTS BOX */}
+<div className="bg-forest p-8 rounded-3xl space-y-8 border border-white/10 flex flex-col justify-between shadow-xl text-sand">
+   <div>
+      <h4 className="font-bold text-saffron uppercase tracking-widest text-[10px] mb-5 flex items-center gap-2">
+        <Globe size={14} /> {t.impactTitle}
+      </h4>
+      <ul className="space-y-4">
+        {[t.impactPoint1, t.impactPoint2, t.impactPoint3].map((point, idx) => (
+          <li key={idx} className="flex gap-3 text-sm leading-snug">
+            <CheckCircle2 className="text-saffron flex-shrink-0" size={18} />
+            <span className="opacity-90">{point}</span>
+          </li>
+        ))}
+      </ul>
+   </div>
+
+   <div className="pt-6 border-t border-white/10">
+      <h4 className="font-bold text-saffron uppercase tracking-widest text-[10px] mb-4 flex items-center gap-2">
+        <Stethoscope size={14} /> {t.specTitle}
+      </h4>
+      <div className="flex flex-wrap gap-2">
+        {(lang === 'en' 
+          ? ['Ksharsutra', 'Agnikarma', 'Jalouka'] 
+          : ['क्षारसूत्र', 'अग्निकर्म', 'जलौका']
+        ).map(tag => (
+          <span key={tag} className="bg-white/10 text-sand px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase border border-white/5 transition-colors hover:bg-saffron hover:text-forest">
+            {tag}
+          </span>
+        ))}
+      </div>
+   </div>
+</div>
           </div>
         </div>
       </section>
-      
 
       {/* WHY CHOOSE US SECTION */}
-      <section className="bg-forest py-24 text-sand">
+      <section className="bg-forest py-20 text-sand relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-white/5 to-transparent"></div>
+        <Leaf className="absolute -top-24 -right-24 opacity-5 rotate-45 text-sand" size={500} />
         
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <h2 className="text-4xl font-serif font-bold mb-16">Why Choose Our Consultation?</h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="p-8 bg-white/5 rounded-3xl border border-white/10">
-              <ShieldCheck className="mx-auto mb-4 text-saffron" size={40} />
-              <h3 className="text-xl font-bold mb-2">Surgical Expertise</h3>
-              <p className="text-sm opacity-80">Specialist in Ayurvedic surgery, Ksharsutra therapy, Agnikarma, and Jalouka (leech) therapy.</p>
-            </div>
-            <div className="p-8 bg-white/5 rounded-3xl border border-white/10">
-              <Leaf className="mx-auto mb-4 text-saffron" size={40} />
-              <h3 className="text-xl font-bold mb-2">Natural & Modern</h3>
-              <p className="text-sm opacity-80">Combines classical Ayurvedic knowledge with modern diagnostic tools for effective results.</p>
-            </div>
-            <div className="p-8 bg-white/5 rounded-3xl border border-white/10">
-              <Users className="mx-auto mb-4 text-saffron" size={40} />
-              <h3 className="text-xl font-bold mb-2">Patient Centered</h3>
-              <p className="text-sm opacity-80">Customized Ayurvedic treatments designed specifically for your body type and health goals.</p>
-            </div>
+        <div className="max-w-7xl mx-auto px-6 relative z-10">
+          <div className="max-w-3xl mx-auto text-center mb-12 animate-fade-up">
+            <h2 className="text-4xl md:text-5xl font-serif font-bold tracking-tight mb-4 text-saffron">{t.whyTitle}</h2>
+            <p className="opacity-60 text-base italic">
+              {lang === 'en' 
+                ? "Bridging ancient wisdom with modern clinical precision" 
+                : "प्राचीन ज्ञान और आधुनिक नैदानिक सटीकता का संगम"}
+            </p>
           </div>
-        </div>
-      </section>
-      <section className="max-w-7xl mx-auto px-6 py-20">
-  <div className="text-center mb-16">
-    <h2 className="text-4xl font-serif font-bold text-forest">Specialized Treatments</h2>
-    <p className="hindi text-xl text-saffron mt-2">विशिष्ट चिकित्सा सेवाएँ</p>
-    <div className="w-24 h-1 bg-saffron/30 mx-auto mt-6 rounded-full"></div>
-  </div>
 
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-  {disorders.map((item, index) => (
-    <div 
-      key={index} 
-      className="glass-card group transition-all duration-500 cursor-pointer overflow-hidden border-2 border-transparent hover:border-saffron/30"
-    >
-      <div className="flex flex-col h-full items-center text-center">
-        
-        {/* ENHANCED CIRCLE - IMAGE NOW FILLS THE SPACE */}
-        <div className="relative w-40 h-40 mb-6 bg-white rounded-full shadow-md border-4 border-sand group-hover:shadow-[0_0_30px_rgba(230,126,34,0.3)] transition-all duration-500 flex items-center justify-center overflow-hidden">
-          <div className="relative w-full h-full transition-transform duration-700 group-hover:scale-110">
-            <Image 
-              src={`/images/DiseaseIMGs/${item.img}`}
-              alt={item.en} 
-              fill 
-              className="object-contain p-2" /* Small p-2 prevents the icon from touching the very edge of the border */
-            />
-          </div>
-        </div>
-        
-        <h3 className="font-bold text-lg text-forest group-hover:text-saffron transition-colors duration-300">
-          {item.en}
-        </h3>
-        <p className="hindi text-sm mt-2 text-leaf opacity-80">
-          {item.hi}
-        </p>
-      </div>
-    </div>
-  ))}
-</div>  
-
-  <div className="mt-16 text-center">
-    <Link href="/consultation" className="btn-vedic scale-110">
-      Consult for These Ailments
-    </Link>
-  </div>
-</section>
-
-      <section className="max-w-4xl mx-auto px-6 py-20">
-        <div className="text-center mb-12">
-          <h2 className="text-4xl font-serif font-bold text-forest">Frequently Asked Questions</h2>
-          <p className="text-saffron font-medium mt-2">सामान्य प्रश्न और उत्तर</p>
-        </div>
-
-        <div className="space-y-4">
-          {faqs.map((faq, i) => (
-            <div key={i} className="border-b border-forest/10">
-              <button 
-                onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                className="w-full py-6 flex justify-between items-center text-left hover:text-saffron transition-colors"
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+            {whyCards.map((item, i) => (
+              <div 
+                key={i} 
+                className="group p-8 rounded-[32px] bg-white/5 border border-white/10 transition-all duration-500 hover:bg-white/[0.08] hover:border-saffron/40 hover:-translate-y-3 hover:shadow-[0_20px_40px_rgba(0,0,0,0.3)]"
               >
-                <span className="font-bold text-lg">{faq.q}</span>
-                {openFaq === i ? <Minus size={20} /> : <Plus size={20} />}
-              </button>
-              {openFaq === i && (
-                <div className="pb-6 text-forest/80 leading-relaxed animate-in fade-in slide-in-from-top-2 duration-300">
-                  {faq.a}
+                <div className="w-12 h-12 rounded-xl bg-saffron/10 flex items-center justify-center mb-6 group-hover:bg-saffron group-hover:text-forest transition-all duration-500">
+                  <item.icon size={28} className="transition-colors duration-500" />
                 </div>
-              )}
+                <h3 className="text-lg font-bold mb-3 text-sand group-hover:text-saffron transition-colors">{item.title}</h3>
+                <p className="text-sm leading-relaxed opacity-50 group-hover:opacity-100 transition-opacity duration-500">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="max-w-3xl mx-auto animate-fade-up">
+            <div className="relative p-[1px] rounded-[32px] bg-gradient-to-r from-transparent via-saffron/40 to-transparent">
+              <div className="bg-forest-dark border border-white/10 rounded-[32px] px-8 py-10 text-center shadow-2xl relative overflow-hidden">
+                <div className="relative z-10 space-y-6">
+                  <h3 className="text-xl md:text-3xl font-serif font-medium leading-tight max-w-xl mx-auto">{t.ctaQuote}</h3>
+                  <p className="text-sand/50 max-w-md mx-auto text-xs md:text-sm uppercase tracking-wide">{t.ctaDesc}</p>
+                  <Link href="/consultation" className="inline-flex items-center gap-3 bg-saffron hover:bg-white text-forest px-8 py-3 rounded-full font-bold text-base transition-all hover:scale-105">{t.ctaBtn}</Link>
+                </div>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* FINAL CALL TO ACTION */}
-      <section className="max-w-7xl mx-auto px-6 mb-20">
-        <div className="bg-forest rounded-[40px] p-12 text-center text-sand relative overflow-hidden">
-          <div className="relative z-10 space-y-6">
-            <h2 className="text-3xl md:text-4xl font-serif font-bold italic">"We don't just treat the disease — we understand its root cause."</h2>
-            <p className="max-w-2xl mx-auto opacity-80">Start your journey toward authentic, research-based Ayurvedic healing today.</p>
-            <Link href="/consultation" className="btn-vedic !bg-saffron hover:!bg-white hover:!text-forest">
-              Book Your Consultation Now
-            </Link>
-          </div>
-          <div className="absolute top-0 right-0 opacity-10 translate-x-1/4 -translate-y-1/4">
-            <Leaf size={300} />
           </div>
         </div>
       </section>
 
+      {/* FAQ SECTION */}
+      <section className="max-w-5xl mx-auto px-6 py-10">
+        <div className="relative bg-white/40 backdrop-blur-md border-l-8 border-saffron rounded-r-[48px] p-8 md:p-12 shadow-xl">
+          <div className="text-center mb-10">
+            <h2 className="text-4xl font-serif font-bold text-forest">{t.faqTitle}</h2>
+            <div className="flex justify-center gap-2 mt-4">
+              {[1, 2, 3].map((i) => (
+                <span key={i} className="h-1 w-1 bg-saffron rounded-full"></span>
+              ))}
+            </div>
+          </div>
 
+          <div className="space-y-1">
+            {faqs.map((faq, i) => (
+              <div key={i} className={`rounded-2xl transition-all duration-300 ${openFaq === i ? 'bg-white/80 shadow-sm' : 'hover:bg-white/30'}`}>
+                <button 
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  className="w-full px-6 py-5 flex justify-between items-center text-left"
+                >
+                  <span className={`font-bold text-lg transition-colors ${openFaq === i ? 'text-saffron' : 'text-forest'}`}>
+                    {faq.q}
+                  </span>
+                  <div className={`transition-transform duration-300 ${openFaq === i ? 'rotate-180' : ''}`}>
+                    <Plus size={20} className={openFaq === i ? 'text-saffron' : 'text-forest/40'} />
+                  </div>
+                </button>
+                <div className={`overflow-hidden transition-all duration-500 ease-in-out ${openFaq === i ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <p className="px-6 pb-6 text-forest/70 leading-relaxed text-base border-t border-forest/5 pt-3 mx-4">
+                    {faq.a}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
     </div>
   );
-  
 }

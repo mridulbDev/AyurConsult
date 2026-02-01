@@ -1,45 +1,70 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
-  /* Define colors as hex for full utility support */
   --color-forest: #1b4332;
   --color-leaf: #2d6a4f;
   --color-sand: #fdf6e3;
+  --color-bone: #f8f9fa; 
   --color-saffron: #e67e22;
   --color-earth: #432818;
 }
 
 :root {
-  --background: #fdf6e3; /* Using hex directly to avoid variable collision */
+  --background: #fdf6e3;
   --foreground: #1b4332;
 }
-
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: 'serif'; /* Ensure you have a serif font loaded */
+  font-family: 'serif', ui-serif, Georgia, serif;
+  overflow-x: hidden;
 }
 
-/* Custom UI Components using @apply */
+/* --- ANIMATIONS --- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-fade-up {
+  animation: fadeInUp 0.8s ease-out forwards;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* --- COMPONENTS --- */
 .badge-vedic {
-  /* Fix: Use the forest/leaf colors for a professional look */
-  @apply bg-saffron/10 text-saffron border border-saffron/20 px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider;
+  @apply bg-saffron/10 text-saffron border border-saffron/20 px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider w-fit;
 }
 
 .btn-vedic {
   @apply bg-forest text-sand px-8 py-3 rounded-full font-bold 
-         hover:bg-leaf transition-all duration-300 shadow-md 
+         hover:bg-leaf transition-all duration-300 shadow-lg 
          inline-flex items-center justify-center gap-2 active:scale-95;
 }
 
-.doctor-card {
-  @apply bg-white border-l-8 border-forest rounded-r-[40px] p-8 md:p-12 shadow-2xl relative overflow-hidden;
+.info-card-vedic {
+  @apply bg-bone border-l-8 border-forest rounded-r-[40px] p-8 md:p-12 shadow-2xl relative overflow-hidden;
 }
 
+/* Base Stat Box */
 .stat-box {
-  @apply flex flex-col items-center justify-center p-4 bg-sand rounded-2xl border border-forest/5;
+  @apply flex flex-col items-center justify-center p-4 bg-white rounded-2xl border border-forest/5 transition-transform hover:-translate-y-1 shadow-sm;
+}
+
+/* Root Background Stat Box */
+.stat-box-sand {
+  @apply flex flex-col items-center justify-center p-4 bg-sand rounded-2xl border border-forest/10 transition-transform hover:-translate-y-1 shadow-sm;
 }
 
 .list-herbal {
@@ -48,4 +73,35 @@ body {
 
 .list-herbal li {
   @apply flex items-start gap-3 before:content-['🌿'] before:text-sm;
+}
+
+/* --- MARQUEE --- */
+@keyframes infinite-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-50% - 12px)); }
+}
+
+.animate-infinite-scroll {
+  display: flex;
+  width: max-content;
+  animation: infinite-scroll 60s linear infinite;
+}
+
+.treatment-card-green {
+  @apply w-[320px] flex-shrink-0 bg-forest rounded-[48px] p-10 shadow-lg transition-all duration-500 flex flex-col items-center text-center border border-white/10;
+}
+
+/* In globals.css */
+@layer base {
+  /* This targets Devanagari (Hindi) characters specifically */
+  :is(.prose) :not(h1, h2, h3) {
+    font-family: 'Inter', sans-serif;
+  }
+  
+  /* Optional: Lighten the Hindi translation text if it's in the same paragraph */
+  .italic-hindi {
+    unicode-range: U+0900-097F; /* Devanagari Range */
+    font-style: italic;
+    opacity: 0.9;
+  }
 }
