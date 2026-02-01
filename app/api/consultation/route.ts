@@ -138,7 +138,8 @@ export async function POST(req: Request) {
     // const paymentLink = `${baseUrl}?${params.toString()}`;
 
 
-    const paymentLink = `${baseUrl}?BookingID=${eventId}`;
+    // const paymentLink = `${baseUrl}?BookingID=${eventId}`;
+    const paymentLink = `${baseUrl}?prefill[BookingID]=${eventId}`;
 
     return Response.json({ paymentLink });
 
