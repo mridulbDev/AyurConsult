@@ -1,10 +1,10 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect,Suspense } from 'react';
 import { useLanguage } from '@/app/context/LanguageContext';
 import { Clock, CreditCard, Video, ShieldCheck, CheckCircle2, Leaf, Calendar as CalIcon, ChevronRight } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 
-export default function ConsultationPage() {
+function ConsultationContent() {
   const { lang } = useLanguage();
   const searchParams = useSearchParams();
   const rescheduleId = searchParams.get('reschedule');
@@ -257,5 +257,20 @@ export default function ConsultationPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// 3. Export the Page wrapped in Suspense
+export default function ConsultationPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-sand flex items-center justify-center">
+        <div className="animate-pulse text-forest font-serif text-xl">
+          Loading Ayurvedic Console...
+        </div>
+      </div>
+    }>
+      <ConsultationContent />
+    </Suspense>
   );
 }
