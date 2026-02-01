@@ -132,10 +132,13 @@ export async function POST(req: Request) {
     });
 
     const baseUrl = process.env.NEXT_PUBLIC_RAZORPAY_PAYMENT_PAGE_URL;
-    const params = new URLSearchParams();
-    params.append('notes[booking_id]', eventId);
+    // const params = new URLSearchParams();
+    // params.append('notes[booking_id]', eventId);
     
-    const paymentLink = `${baseUrl}?${params.toString()}`;
+    // const paymentLink = `${baseUrl}?${params.toString()}`;
+
+
+    const paymentLink = `${baseUrl}?BookingID=${eventId}`;
 
     return Response.json({ paymentLink });
 

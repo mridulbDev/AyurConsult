@@ -10,9 +10,16 @@ export async function POST(req: Request) {
 
   if (!isValid) return new Response('Invalid Signature', { status: 400 });
 
-  const  payload  = JSON.parse(body);
-  const payment = payload.payload.payment.entity;
-  const bookingId = payment.notes.booking_id; 
+  const  data = JSON.parse(body);
+  const payment = data.payload.payment.entity;
+  // Check both locations just to be safe
+  const bookingId = 
+    payment.notes?.bookingID || 
+    payment.notes?.['bookingID'] ||
+    // If it's a payment page field, it's often passed in the 'description' or metadata
+    data.payload.payment_page?.entity?.payment_page_items?.find(
+        (item: any) => item.product_config?.name === 'bookingID'
+    )?.value;
 
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!, 
