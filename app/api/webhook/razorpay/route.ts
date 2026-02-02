@@ -37,6 +37,28 @@ export async function POST(req: Request) {
       eventId: bookingId 
     });
 
+    // Fetch the start and end times from the Google Event
+const start = eventRes.data.start?.dateTime;
+const end = eventRes.data.end?.dateTime;
+
+const timeOptions: Intl.DateTimeFormatOptions = { 
+  hour: '2-digit', 
+  minute: '2-digit', 
+  hour12: true,
+  timeZone: 'Asia/Kolkata' 
+};
+
+const dateOptions: Intl.DateTimeFormatOptions = {
+  day: 'numeric', 
+  month: 'short',
+  timeZone: 'Asia/Kolkata'
+};
+
+// Format: "5 Feb, 10:30 AM - 11:00 AM"
+const appointmentTime = start && end
+  ? `${new Date(start).toLocaleString('en-IN', dateOptions)}, ${new Date(start).toLocaleTimeString('en-IN', timeOptions)} - ${new Date(end).toLocaleTimeString('en-IN', timeOptions)}`
+  : "Scheduled Time";
+
     const patientData = JSON.parse(eventRes.data.description || '{}');
     
     // We define these once here so they are available everywhere below
@@ -74,7 +96,7 @@ MEETING LINK: ${meetLink}
         const formattedPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
 
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, session confirmed! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}`,
+          body: `Namaste ${patientData.name}, session confirmed! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}  \n📅 *Time:* ${appointmentTime}\n`,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: formattedPhone
         });
@@ -100,9 +122,9 @@ MEETING LINK: ${meetLink}
               <h2>Consultation Confirmed</h2>
               <p>Namaste ${patientData.name},</p>
               <p>Your session is booked. Please join using the link below:</p>
-              <p><a href="${meetLink}" style="background: #E8A856; color: #123025; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Join Video Call</a></p>
+              <p><a href="${meetLink}" style="background: #E8A856; color: #123025; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">/nJoin Video Call \n📅 *Time:* ${appointmentTime}\n</a></p>
               <hr />
-              <p style="font-size: 12px;">Need to change time? <a href="${rescheduleLink}">Reschedule here</a></p>
+              <p style="font-size: 12px;">Need to change time? <a href="${rescheduleLink}">Reschedule here </a></p>
             </div>
           `
         });
