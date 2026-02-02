@@ -122,7 +122,7 @@ MEETING LINK: ${meetLink}
               <h2>Consultation Confirmed</h2>
               <p>Namaste ${patientData.name},</p>
               <p>Your session is booked. Please join using the link below:</p>
-              <p><a href="${meetLink}" style="background: #E8A856; color: #123025; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">/nJoin Video Call \n📅 *Time:* ${appointmentTime}\n</a></p>
+              <p><a href="${meetLink}" style="background: #E8A856; color: #123025; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Join Video Call 📅 *Time:* ${appointmentTime}\n</a></p>
               <hr />
               <p style="font-size: 12px;">Need to change time? <a href="${rescheduleLink}">Reschedule here </a></p>
             </div>
