@@ -44,7 +44,11 @@ export async function POST(req: Request) {
       requestBody: {
         summary: `CONFIRMED: ${patientData.name}`,
         description: `Phone: ${patientData.phone}\nSymptoms: ${patientData.symptoms}\nHistory: ${patientData.history}\nAge: ${patientData.age}`,
-        // Using a cleaner conferenceData structure
+        // 1. Adding the doctor as an attendee often fixes the 400 error
+        attendees: [
+          { email: process.env.DOCTOR_EMAIL, responseStatus: 'accepted' },
+          { email: patientData.email }
+        ],
         conferenceData: {
           createRequest: {
             requestId: `req-${bookingId}-${Date.now()}`,
@@ -55,7 +59,9 @@ export async function POST(req: Request) {
     });
 
     // 3. Fallback: If hangoutLink is missing, Google didn't generate one
-    const meetLink = update.data.hangoutLink || "Link will be sent shortly";
+    const meetLink = update.data.hangoutLink || 
+                     update.data.conferenceData?.entryPoints?.[0]?.uri || 
+                     "Link generated in Calendar";
     
     const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}`;
 
@@ -83,7 +89,7 @@ export async function POST(req: Request) {
 
     return new Response('OK', { status: 200 });
   } catch (error: any) {
-    // This will print the full message instead of just [Object]
+    // This logs the EXACT nested error from Google
     console.error("DETAILED GOOGLE ERROR:", JSON.stringify(error.response?.data, null, 2)); 
     return new Response('Internal Error', { status: 500 });
   }
