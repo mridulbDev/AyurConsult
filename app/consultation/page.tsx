@@ -213,7 +213,7 @@ function ConsultationContent() {
                       {lang === 'en' ? 'Secure Razorpay Checkout' : 'सुरक्षित रेज़रपे चेकआउट'}
                     </div>
                     <p className="text-[10px] text-sand/30 italic leading-relaxed">
-                      {lang === 'en' ? 'Confirmation sent instantly to Email/WhatsApp.' : 'ईमेल/व्हाट्सएप पर तुरंत पुष्टि भेजी गई।'}
+                      {lang === 'en' ? 'Confirmation sent instantly to Email/SMS/WhatsApp.' : 'ईमेल/व्हाट्सएप/मेसज पर तुरंत पुष्टि भेजी गई।'}
                     </p>
                   </div>
                 </div>
