@@ -78,18 +78,6 @@ MEETING LINK: ${meetLink}
           from: process.env.TWILIO_PHONE_NUMBER,
           to: formattedPhone
         });
-
-        await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, session confirmed!  ! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}`,
-          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`, // <--- MUST have 'whatsapp:' prefix
-          to: `whatsapp:${formattedPhone}`
-        });
-
-        await twilioClient.messages.create({
-          body: `Session confirmed for patient: ${patientData.name}, ! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}`,
-          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`, // <--- MUST have 'whatsapp:' prefix
-          to: `whatsapp:${process.env.DOCTOR_PHONE}`
-        });
         console.log("✅ Twilio Sent Successfully");
       }
 
