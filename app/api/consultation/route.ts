@@ -58,7 +58,7 @@ export async function GET(req: Request) {
   }
 }
 
-// ... (Keep your existing imports and GET method)
+
 
 export async function POST(req: Request) {
   try {
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
         'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}`
       },
       body: JSON.stringify({
-        amount: 50000, // ₹500
+        amount: 20000, // ₹500
         currency: "INR",
         notes: { booking_id: eventId } // Very important for the webhook
       })
