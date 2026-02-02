@@ -3,6 +3,7 @@ import React, { useState, useEffect,Suspense } from 'react';
 import { useLanguage } from '@/app/context/LanguageContext';
 import { Clock, CreditCard, Video, ShieldCheck, CheckCircle2, Leaf, Calendar as CalIcon, ChevronRight } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import Script from 'next/script';
 
 function ConsultationContent() {
   const { lang } = useLanguage();
@@ -37,38 +38,45 @@ function ConsultationContent() {
 
   const handleProceed = async () => {
     if (step === 1) return setStep(2);
-    
     setLoading(true);
+
     try {
-      // 1. Call API to lock slot
       const res = await fetch('/api/consultation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eventId: selectedSlot.id, patientData: formData, rescheduleId })
       });
 
-      if (!res.ok) {
-        alert("This slot was just taken! Picking another...");
-        window.location.reload();
-        return;
-      }
-
       const data = await res.json();
 
-      // 2. Logic for redirection vs. success
       if (rescheduleId) {
-        // If it's a reschedule, there's no payment, so go to Success
         setStep(3);
-      } else if (data.paymentLink) {
-        // FOR NEW BOOKINGS: Redirect the user to the Razorpay Payment Page
-        window.location.href = data.paymentLink;
       } else {
-        // Fallback if something is weird
-        setStep(3);
+        // TRIGGER RAZORPAY SDK
+        const options = {
+          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+          amount: 50000,
+          currency: "INR",
+          name: "Dr. Dixit Ayurveda",
+          description: "Consultation Fee",
+          order_id: data.orderId,
+          handler: function (response: any) {
+            // This runs after successful payment
+            setStep(3); 
+          },
+          prefill: {
+            name: formData.name,
+            email: formData.email,
+            contact: formData.phone,
+          },
+          theme: { color: "#123025" }, // Forest Green
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
       }
-    } catch (error) {
-      console.error("Booking error:", error);
-      alert("Something went wrong. Please try again.");
+    } catch (e) {
+      alert("Error initiating payment");
     } finally {
       setLoading(false);
     }
@@ -93,7 +101,9 @@ function ConsultationContent() {
   ];
 
   return (
-    <div className="min-h-screen bg-sand relative overflow-hidden selection:bg-saffron/30">
+   <>
+    <Script src="https://checkout.razorpay.com/v1/checkout.js" />
+     <div className="min-h-screen bg-sand relative overflow-hidden selection:bg-saffron/30">
       {/* --- DYNAMIC BACKGROUND ELEMENTS --- */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-5%] left-[-5%] w-[500px] h-[500px] bg-forest/10 rounded-full blur-[100px] animate-pulse"></div>
@@ -256,7 +266,8 @@ function ConsultationContent() {
           </div>
         </div>
       </div>
-    </div>
+    </div> 
+   </>
   );
 }
 

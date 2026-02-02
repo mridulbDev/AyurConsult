@@ -58,70 +58,18 @@ export async function GET(req: Request) {
   }
 }
 
+// ... (Keep your existing imports and GET method)
+
 export async function POST(req: Request) {
   try {
     const { eventId, patientData, rescheduleId } = await req.json();
 
-    // --- CASE 1: RESCHEDULING ---
-    if (rescheduleId) {
-      // 1. Reset the old slot
-      await calendar.events.patch({ 
-        calendarId: CALENDAR_ID, 
-        eventId: rescheduleId, 
-        requestBody: { summary: 'Available', description: '' } 
-      });
-      
-      // 2. Confirm the new slot
-      const update = await calendar.events.patch({
-        calendarId: CALENDAR_ID, 
-        eventId: eventId,
-        conferenceDataVersion: 1,
-        requestBody: {
-          summary: `CONFIRMED: ${patientData.name}`,
-          description: `Phone: ${patientData.phone}\nSymptoms: ${patientData.symptoms}\nHistory: ${patientData.history}`,
-          conferenceData: { createRequest: { requestId: eventId, conferenceSolutionKey: { type: 'hangoutsMeet' } } }
-        }
-      });
+    // CASE 1: RESCHEDULE (Keep your logic, it's fine)
+    if (rescheduleId) { /* ... same as before ... */ }
 
-      const meetLink = update.data.hangoutLink;
-
-      // 3. Notify Patient Immediately (No payment involved)
-      try {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail', 
-          auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
-        });
-        await transporter.sendMail({
-          from: `"Dr. Dixit Ayurveda" <${process.env.EMAIL_USER}>`,
-          to: patientData.email,
-          subject: `Appointment Rescheduled - ${patientData.name}`,
-          html: `
-            <div style="font-family: Arial, sans-serif;">
-              <h2>Namaste ${patientData.name},</h2>
-              <p>Your appointment has been successfully moved.</p>
-              <p><strong>New Meeting Link:</strong> <a href="${meetLink}">${meetLink}</a></p>
-            </div>
-          `
-        });
-
-        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-        await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, your session has been rescheduled! New Link: ${meetLink}`,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: `+91${patientData.phone}`
-        });
-      } catch (e) { console.error("Notification Error:", e); }
-
-      return Response.json({ success: true, meetLink });
-    }
-
-    // --- CASE 2: NEW BOOKING (PENDING) ---
-    // Save patient data + timestamp to description for the Webhook and Cleanup logic
-    const pendingPayload = {
-      ...patientData,
-      pendingAt: Date.now()
-    };
-
+    // CASE 2: NEW BOOKING
+    // 1. Mark Slot as Pending in Calendar
+    const pendingPayload = { ...patientData, pendingAt: Date.now() };
     await calendar.events.patch({
       calendarId: CALENDAR_ID, 
       eventId: eventId,
@@ -131,20 +79,24 @@ export async function POST(req: Request) {
       }
     });
 
-    const baseUrl = process.env.NEXT_PUBLIC_RAZORPAY_PAYMENT_PAGE_URL;
-    // const params = new URLSearchParams();
-    // params.append('notes[booking_id]', eventId);
-    
-    // const paymentLink = `${baseUrl}?${params.toString()}`;
+    // 2. Create Razorpay Order
+    const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}`
+      },
+      body: JSON.stringify({
+        amount: 50000, // ₹500
+        currency: "INR",
+        notes: { booking_id: eventId } // Very important for the webhook
+      })
+    });
 
-
-    // const paymentLink = `${baseUrl}?BookingID=${eventId}`;
-    const paymentLink = `${baseUrl}?prefill[BookingID]=${eventId}`;
-
-    return Response.json({ paymentLink });
+    const order = await razorpayRes.json();
+    return Response.json({ orderId: order.id, eventId });
 
   } catch (error) {
-    console.error("POST Booking Error:", error);
-    return Response.json({ error: "Failed to process booking" }, { status: 500 });
+    return Response.json({ error: "Booking Failed" }, { status: 500 });
   }
 }

@@ -1,36 +1,45 @@
-import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils';
 import { google } from 'googleapis';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 export async function POST(req: Request) {
-  const body = await req.text();
-  const signature = req.headers.get('x-razorpay-signature');
-  const isValid = validateWebhookSignature(body, signature!, process.env.RAZORPAY_WEBHOOK_SECRET!);
+  try {
+    const body = await req.text();
+    const signature = req.headers.get('x-razorpay-signature');
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
 
-  if (!isValid) return new Response('Invalid Signature', { status: 400 });
+    // 1. Verify Signature manually for maximum reliability in Next.js
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(body)
+      .digest('hex');
 
-  const  data = JSON.parse(body);
-  const payment = data.payload.payment.entity;
-  // Check both locations just to be safe
-  const bookingId = 
-    payment.notes?.bookingID || 
-    payment.notes?.['bookingID'] ||
-    // If it's a payment page field, it's often passed in the 'description' or metadata
-    data.payload.payment_page?.entity?.payment_page_items?.find(
-        (item: any) => item.product_config?.name === 'bookingID'
-    )?.value;
+    if (signature !== expectedSignature) {
+      return new Response('Invalid Signature', { status: 400 });
+    }
 
-  const auth = new google.auth.JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!, 
-    key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    scopes: ['https://www.googleapis.com/auth/calendar'],
-  });
-  const calendar = google.calendar({ version: 'v3', auth });
+    const data = JSON.parse(body);
+    const payment = data.payload.payment.entity;
+    
+    // We only care about successful captures
+    if (data.event !== 'payment.captured') return new Response('OK', { status: 200 });
 
-  const event = await calendar.events.get({ calendarId: process.env.GOOGLE_CALENDAR_ID, eventId: bookingId });
+    const bookingId = payment.notes?.booking_id; 
+    if (!bookingId) return new Response('No Booking ID', { status: 200 });
 
-  if (event) {
+    // 2. Google Calendar Auth
+    const auth = new google.auth.JWT({
+      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!, 
+      key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      scopes: ['https://www.googleapis.com/auth/calendar'],
+    });
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    // 3. Update Calendar Event
+    const event = await calendar.events.get({ calendarId: process.env.GOOGLE_CALENDAR_ID, eventId: bookingId });
+    if (!event) return new Response('Event not found', { status: 200 });
+
     const patientData = JSON.parse(event.data.description || '{}');
     const update = await calendar.events.patch({
       calendarId: process.env.GOOGLE_CALENDAR_ID,
@@ -44,49 +53,35 @@ export async function POST(req: Request) {
     });
 
     const meetLink = update.data.hangoutLink;
-    
-    // --- BUILD RESCHEDULE LINK SAFELY ---
-    const reschedParams = new URLSearchParams();
-    reschedParams.append('reschedule', bookingId);
+    const reschedParams = new URLSearchParams({ reschedule: bookingId });
     const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?${reschedParams.toString()}`;
 
-    // 1. Send WhatsApp via Twilio
+    // 4. Notifications
     try {
+      // WhatsApp (Twilio)
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, session confirmed! Link: ${meetLink}. Reschedule here: ${rescheduleLink}`,
+        body: `Namaste ${patientData.name}, session confirmed! \nLink: ${meetLink} \nReschedule: ${rescheduleLink}`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: `+91${patientData.phone}`
       });
-    } catch (e) { console.error("Twilio failed", e); }
 
-    // 2. Send Email via Nodemailer
-    try {
+      // Email (Nodemailer)
       const transporter = nodemailer.createTransport({
         service: 'gmail',
-        auth: {
-          user: process.env.DOCTOR_EMAIL, 
-          pass: process.env.EMAIL_PASS, 
-        },
+        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
       });
-
       await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.EMAIL_USER}>`,
+        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: patientData.email,
         subject: `Booking Confirmed - ${patientData.name}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <h2>Namaste ${patientData.name},</h2>
-            <p>Your Consultation with Dr. Dixit is confirmed.</p>
-            <p><strong>Meeting Link:</strong> <a href="${meetLink}">${meetLink}</a></p>
-            <p><strong>Reschedule Link:</strong> <a href="${rescheduleLink}">Change Date/Time</a></p>
-            <br />
-            <p>Warm regards,<br />Dr. Dixit Ayurveda</p>
-          </div>
-        `
+        html: `<p>Namaste ${patientData.name},</p><p>Link: <a href="${meetLink}">${meetLink}</a></p>`
       });
-    } catch (e) { console.error("Email failed", e); }
-  }
+    } catch (e) { console.error("Notification Error:", e); }
 
-  return new Response('OK', { status: 200 });
+    return new Response('OK', { status: 200 });
+  } catch (error) {
+    console.error("Webhook Error:", error);
+    return new Response('Internal Error', { status: 500 });
+  }
 }
