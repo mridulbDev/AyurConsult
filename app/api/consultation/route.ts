@@ -79,33 +79,70 @@ export async function POST(req: Request) {
         requestBody: { summary: 'Available', description: '' }
       });
 
-      // 2. Mark new event as confirmed
+      // 2. Mark new event as confirmed and save patient data to description
       const update = await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: eventId,
         requestBody: {
           summary: `CONFIRMED: ${patientData.name}`,
           location: meetLink,
-          description: `Phone: ${patientData.phone}\nSymptoms: ${patientData.symptoms}\n(Rescheduled)`
+          description: `PATIENT: ${patientData.name}\nPHONE: ${patientData.phone}\nEMAIL: ${patientData.email}\nSYMPTOMS: ${patientData.symptoms}\n(Rescheduled)`.trim()
         }
       });
 
-      const newTime = new Date(update.data.start?.dateTime || "").toLocaleString('en-IN', { 
-        timeZone: 'Asia/Kolkata', dateStyle: 'full', timeStyle: 'short' 
-      });
+      // 3. Format Time Range
+      const start = update.data.start?.dateTime;
+      const end = update.data.end?.dateTime;
+      const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' };
+      const dateOptions: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' };
 
-      // Notify
-      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-      await twilioClient.messages.create({
-        body: `Rescheduled! Your session is now on ${newTime}. Link: ${meetLink}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: `+91${patientData.phone}`
-      });
+      const formattedTime = start && end
+        ? `${new Date(start).toLocaleString('en-IN', dateOptions)}, ${new Date(start).toLocaleTimeString('en-IN', timeOptions)} - ${new Date(end).toLocaleTimeString('en-IN', timeOptions)}`
+        : "Scheduled Time";
+
+      // --- 4. NOTIFY VIA WHATSAPP/SMS ---
+      try {
+        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+        const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
+        const formattedPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
+
+        // Send WhatsApp
+        await twilioClient.messages.create({
+          body: `Namaste ${patientData.name}, your reschedule is successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}`,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:${formattedPhone}`
+        });
+      } catch (e) { console.error("Twilio Reschedule Notify Error:", e); }
+
+      // --- 5. NOTIFY VIA EMAIL ---
+      if (patientData.email && process.env.EMAIL_PASS) {
+        try {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
+          });
+
+          await transporter.sendMail({
+            from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+            to: patientData.email,
+            subject: `Rescheduled Successfully: ${patientData.name}`,
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; color: #123025; border: 1px solid #eee; border-radius: 10px;">
+                <h2 style="color: #123025;">Reschedule Confirmed</h2>
+                <p>Namaste <strong>${patientData.name}</strong>,</p>
+                <p>Your appointment has been successfully moved to:</p>
+                <p style="font-size: 18px; font-weight: bold; color: #E8A856;">${formattedTime}</p>
+                <p>Meeting Link (remains same): <a href="${meetLink}">${meetLink}</a></p>
+              </div>
+            `
+          });
+        } catch (e) { console.error("Email Reschedule Notify Error:", e); }
+      }
 
       return Response.json({ success: true });
     }
 
-    // --- CASE 2: NEW BOOKING ---
+    // --- CASE 2: NEW BOOKING (Logic stays the same) ---
     const pendingPayload = { ...patientData, pendingAt: Date.now() };
     await calendar.events.patch({
       calendarId: CALENDAR_ID, 
@@ -123,7 +160,7 @@ export async function POST(req: Request) {
         'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}`
       },
       body: JSON.stringify({
-        amount: 50000, 
+        amount: 20000, // Matching your frontend 200.00
         currency: "INR",
         notes: { booking_id: eventId }
       })
