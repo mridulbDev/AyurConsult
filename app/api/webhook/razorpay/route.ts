@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     const auth = new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!, 
       key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      scopes: ['https://www.googleapis.com/auth/calendar'],
+      scopes: ['https://www.googleapis.com/auth/calendar','https://www.googleapis.com/auth/calendar.events'],
       // ADD THIS: If using Google Workspace, the service account must impersonate the doctor
       // subject: process.env.DOCTOR_EMAIL 
     });
