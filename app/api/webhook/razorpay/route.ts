@@ -83,9 +83,8 @@ export async function POST(req: Request) {
 
     return new Response('OK', { status: 200 });
   } catch (error: any) {
-    // Detailed Logging: This will show EXACTLY what Google is complaining about
-    console.error("GOOGLE API ERROR DATA:", error.response?.data); 
-    console.error("Webhook Logic Error:", error.message);
+    // This will print the full message instead of just [Object]
+    console.error("DETAILED GOOGLE ERROR:", JSON.stringify(error.response?.data, null, 2)); 
     return new Response('Internal Error', { status: 500 });
   }
 }
