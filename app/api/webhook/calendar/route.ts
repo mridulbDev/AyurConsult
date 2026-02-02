@@ -8,34 +8,34 @@ export async function POST(req: Request) {
     scopes: ['https://www.googleapis.com/auth/calendar'],
   });
   const calendar = google.calendar({ version: 'v3', auth });
+  const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
 
   const list = await calendar.events.list({
     calendarId: process.env.GOOGLE_CALENDAR_ID,
-    updatedMin: new Date(Date.now() - 120000).toISOString(), // Last 2 mins
+    updatedMin: new Date(Date.now() - 60000).toISOString(),
     singleEvents: true
   });
 
-  const event = list.data.items?.[0];
-  const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
+  const event = list.data.items?.find(ev => ev.summary?.startsWith('CONFIRMED'));
 
-  if (event?.summary?.startsWith('CONFIRMED')) {
+  if (event) {
     const phoneMatch = event.description?.match(/Phone: (\d+)/);
     if (phoneMatch) {
       const patientPhone = phoneMatch[1];
       const newTime = new Date(event.start?.dateTime || event.start?.date || Date.now()).toLocaleString('en-IN', { 
-  timeZone: 'Asia/Kolkata',
-  dateStyle: 'full',
-  timeStyle: 'short'
-});
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'full',
+        timeStyle: 'short'
+      });
       
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         await twilioClient.messages.create({
-          body: `Namaste, Dr. Dixit has rescheduled your session to ${newTime}. Same link: ${meetLink}`,
+          body: `Dr. Dixit has moved your session to ${newTime}. Link: ${meetLink}`,
           from: process.env.TWILIO_PHONE_NUMBER,
           to: `+91${patientPhone}`
         });
-      } catch (e) { console.error("SMS failed", e); }
+      } catch (e) { console.error("Doctor-side reschedule failed", e); }
     }
   }
   return new Response('OK', { status: 200 });

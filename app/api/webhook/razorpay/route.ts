@@ -10,7 +10,14 @@ export async function POST(req: Request) {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
 
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    if (signature !== expectedSignature) return new Response('Invalid Signature', { status: 400 });
+    
+    // Fixed: Return JSON error so frontend doesn't crash on "Invalid Signature" text
+    if (signature !== expectedSignature) {
+      return new Response(JSON.stringify({ error: 'Invalid Signature' }), { 
+        status: 400, 
+        headers: { 'Content-Type': 'application/json' } 
+      });
+    }
 
     const data = JSON.parse(body);
     if (data.event !== 'payment.captured') return new Response('OK', { status: 200 });
@@ -32,27 +39,29 @@ export async function POST(req: Request) {
     });
 
     const patientData = JSON.parse(eventRes.data.description || '{}');
-    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK; // Your permanent link
+    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK; // https://meet.google.com/kzq-tfhm-wjp
     
-    // Update event to CONFIRMED
+    // PATCH: No conferenceDataVersion needed. Standard text update.
     await calendar.events.patch({
       calendarId: process.env.GOOGLE_CALENDAR_ID,
       eventId: bookingId,
       requestBody: {
         summary: `CONFIRMED: ${patientData.name}`,
         location: meetLink,
-        description: `Phone: ${patientData.phone}\nSymptoms: ${patientData.symptoms}\nHistory: ${patientData.history}\nAge: ${patientData.age}\nMeeting Link: ${meetLink}`,
-        attendees: [{ email: patientData.email }, { email: process.env.DOCTOR_EMAIL }]
+        description: `Phone: ${patientData.phone}\nSymptoms: ${patientData.symptoms}\nHistory: ${patientData.history}\nAge: ${patientData.age}\n\nJoin: ${meetLink}`,
+        attendees: [
+          { email: process.env.DOCTOR_EMAIL, responseStatus: 'accepted' },
+          { email: patientData.email }
+        ],
       }
     });
 
     const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}`;
 
-    // Notifications
     try {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, session confirmed! \nMeeting Link: ${meetLink} \nReschedule here: ${rescheduleLink}`,
+        body: `Namaste ${patientData.name}, session confirmed! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: `+91${patientData.phone}`
       });
@@ -65,13 +74,14 @@ export async function POST(req: Request) {
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: patientData.email,
         subject: `Booking Confirmed - ${patientData.name}`,
-        html: `<p>Namaste ${patientData.name},</p><p>Link: <a href="${meetLink}">${meetLink}</a></p><p><a href="${rescheduleLink}">Reschedule</a></p>`
+        html: `<p>Meeting Link: <a href="${meetLink}">${meetLink}</a></p>
+        <p><strong>Reschedule Link:</strong> <a href="${rescheduleLink}">Change Date/Time</a></p>`
       });
     } catch (e) { console.error("Notification Error:", e); }
 
     return new Response('OK', { status: 200 });
   } catch (error: any) {
-    console.error("Webhook Logic Error:", error);
-    return new Response('Internal Error', { status: 500 });
+    console.error("WEBHOOK ERROR:", error); 
+    return new Response(JSON.stringify({ error: 'Internal Error' }), { status: 500 });
   }
 }
