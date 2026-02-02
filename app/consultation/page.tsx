@@ -55,7 +55,7 @@ function ConsultationContent() {
         // TRIGGER RAZORPAY SDK
         const options = {
           key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-          amount: 50000,
+          amount: 20000,
           currency: "INR",
           name: "Dr. Dixit Ayurveda",
           description: "Consultation Fee",
@@ -76,7 +76,8 @@ function ConsultationContent() {
         rzp.open();
       }
     } catch (e) {
-      alert("Error initiating payment");
+      console.error("FULL ERROR DETAILS:", e); // Look at your browser console (F12)
+      alert("Error: " + e);
     } finally {
       setLoading(false);
     }
