@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 
     const meetLink = process.env.NEXT_PUBLIC_MEET_LINK || "https://meet.google.com/kzq-tfhm-wjp";
     const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}`;
-    const drPhone = process.env.DOCTOR_PHONE || "+918306623303"; 
+    const drPhone = process.env.DOCTOR_PHONE 
 
     // 1. PATCH GOOGLE CALENDAR (Update status to Confirmed)
     await calendar.events.patch({
@@ -90,14 +90,14 @@ export async function POST(req: Request) {
         // B. WhatsApp to Patient
         await twilioClient.messages.create({
           body: `Namaste *${patientData.name}*, your Ayurvedic Consultation is confirmed.\n\n📅 *Time*: ${appointmentTime}\n🔗 *Join Link*: ${meetLink}\n\nTo reschedule: ${rescheduleLink}`,
-          from: senderWhatsApp,
+          from: process.env.TWILIO_PHONE_NUMBER,
           to: `whatsapp:${formattedPhone}`
         });
 
         // C. WhatsApp to Dr. Dixit (YOU)
         await twilioClient.messages.create({
           body: `🔔 *NEW BOOKING*\n\n👤 *Patient*: ${patientData.name}\n📅 *Time*: ${appointmentTime}\n🎂 *Age*: ${patientData.age}\n📝 *Symptoms*: ${patientData.symptoms}\n\n🔗 *Meet Link*: ${meetLink}`,
-          from: senderWhatsApp,
+          from: process.env.TWILIO_PHONE_NUMBER,
           to: `whatsapp:${drPhone}`
         });
         
