@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "dot-env": "^0.0.1",
     "dotenv": "^17.2.3",
     "googleapis": "^171.0.0",
     "gray-matter": "^4.0.3",

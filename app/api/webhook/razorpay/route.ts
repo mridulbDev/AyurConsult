@@ -11,7 +11,6 @@ export async function POST(req: Request) {
 
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
     
-    // Fixed: Return JSON error so frontend doesn't crash on "Invalid Signature" text
     if (signature !== expectedSignature) {
       return new Response(JSON.stringify({ error: 'Invalid Signature' }), { 
         status: 400, 
@@ -39,17 +38,19 @@ export async function POST(req: Request) {
     });
 
     const patientData = JSON.parse(eventRes.data.description || '{}');
-    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK; // https://meet.google.com/kzq-tfhm-wjp
     
-    // PATCH: No conferenceDataVersion needed. Standard text update.
+    // We define these once here so they are available everywhere below
+    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK || "https://meet.google.com/kzq-tfhm-wjp";
+    const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}`;
+
+    // 1. PATCH GOOGLE CALENDAR
     await calendar.events.patch({
-  calendarId: process.env.GOOGLE_CALENDAR_ID,
-  eventId: bookingId,
-  requestBody: {
-    summary: `CONFIRMED: ${patientData.name}`,
-    location: meetLink,
-    // We put all info in the description since we can't use 'attendees'
-    description: `
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      eventId: bookingId,
+      requestBody: {
+        summary: `CONFIRMED: ${patientData.name}`,
+        location: meetLink,
+        description: `
 PATIENT: ${patientData.name}
 PHONE: ${patientData.phone}
 SYMPTOMS: ${patientData.symptoms}
@@ -57,34 +58,62 @@ HISTORY: ${patientData.history}
 AGE: ${patientData.age}
 
 MEETING LINK: ${meetLink}
-    `.trim(),
-  }
-});
+        `.trim(),
+      }
+    });
 
-    const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}`;
+    console.log("🚀 Starting Notifications for:", patientData.email);
 
+    // 2. SEND NOTIFICATIONS
     try {
-      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-      await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, session confirmed! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: `+91${patientData.phone}`
-      });
+      // WhatsApp Notification
+      if (process.env.TWILIO_SID && process.env.TWILIO_TOKEN) {
+        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+        
+        const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
+        const formattedPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
 
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
-      });
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: patientData.email,
-        subject: `Booking Confirmed - ${patientData.name}`,
-        html: `<p>Meeting Link: <a href="${meetLink}">${meetLink}</a></p>
-        <p><strong>Reschedule Link:</strong> <a href="${rescheduleLink}">Change Date/Time</a></p>`
-      });
-    } catch (e) { console.error("Notification Error:", e); }
+        await twilioClient.messages.create({
+          body: `Namaste ${patientData.name}, session confirmed! \nMeeting: ${meetLink} \nReschedule: ${rescheduleLink}`,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: formattedPhone
+        });
+        console.log("✅ Twilio Sent Successfully");
+      }
+
+      // Email Notification
+      if (process.env.EMAIL_PASS && process.env.DOCTOR_EMAIL) {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { 
+            user: process.env.DOCTOR_EMAIL, 
+            pass: process.env.EMAIL_PASS 
+          }
+        });
+
+        await transporter.sendMail({
+          from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+          to: patientData.email,
+          subject: `Booking Confirmed - ${patientData.name}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #123025;">
+              <h2>Consultation Confirmed</h2>
+              <p>Namaste ${patientData.name},</p>
+              <p>Your session is booked. Please join using the link below:</p>
+              <p><a href="${meetLink}" style="background: #E8A856; color: #123025; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Join Video Call</a></p>
+              <hr />
+              <p style="font-size: 12px;">Need to change time? <a href="${rescheduleLink}">Reschedule here</a></p>
+            </div>
+          `
+        });
+        console.log("✅ Email Sent Successfully");
+      }
+    } catch (notifErr: any) {
+      console.error("❌ NOTIFICATION BLOCK FAILED:", notifErr.message);
+    }
 
     return new Response('OK', { status: 200 });
+
   } catch (error: any) {
     console.error("WEBHOOK ERROR:", error); 
     return new Response(JSON.stringify({ error: 'Internal Error' }), { status: 500 });
