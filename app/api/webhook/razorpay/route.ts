@@ -43,18 +43,23 @@ export async function POST(req: Request) {
     
     // PATCH: No conferenceDataVersion needed. Standard text update.
     await calendar.events.patch({
-      calendarId: process.env.GOOGLE_CALENDAR_ID,
-      eventId: bookingId,
-      requestBody: {
-        summary: `CONFIRMED: ${patientData.name}`,
-        location: meetLink,
-        description: `Phone: ${patientData.phone}\nSymptoms: ${patientData.symptoms}\nHistory: ${patientData.history}\nAge: ${patientData.age}\n\nJoin: ${meetLink}`,
-        attendees: [
-          { email: process.env.DOCTOR_EMAIL, responseStatus: 'accepted' },
-          { email: patientData.email }
-        ],
-      }
-    });
+  calendarId: process.env.GOOGLE_CALENDAR_ID,
+  eventId: bookingId,
+  requestBody: {
+    summary: `CONFIRMED: ${patientData.name}`,
+    location: meetLink,
+    // We put all info in the description since we can't use 'attendees'
+    description: `
+PATIENT: ${patientData.name}
+PHONE: ${patientData.phone}
+SYMPTOMS: ${patientData.symptoms}
+HISTORY: ${patientData.history}
+AGE: ${patientData.age}
+
+MEETING LINK: ${meetLink}
+    `.trim(),
+  }
+});
 
     const rescheduleLink = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}`;
 
