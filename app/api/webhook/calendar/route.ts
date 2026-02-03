@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const parts = resourceUri.split('/');
     const eventId = parts[parts.length - 1];
 
-    await delay(2500); 
+    await delay(4500); 
 
     // 1. Fetch ONLY the event the doctor moved
     const { data: event } = await calendar.events.get({
