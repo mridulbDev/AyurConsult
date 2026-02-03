@@ -95,10 +95,12 @@ export async function POST(req: Request) {
       // WhatsApp
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+        const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
+      const formattedPatientPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
         await twilioClient.messages.create({
           body: `Namaste ${patientData.name}, your session is moved to ${timeStr}.\n\nMeeting Link: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${rescheduleUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
+          to: formattedPatientPhone
         });
       } catch (e) { console.error("WhatsApp failed"); }
 

@@ -98,8 +98,9 @@ export async function GET(req: Request) {
 
     const processedSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
     return Response.json({ slots: processedSlots });
-  } catch (error) {
-    return Response.json({ slots: [] }, { status: 500 });
+  } catch (error:any) {
+    console.error("DEBUG ERROR:", error.message); // This will show in Vercel Logs
+    return Response.json({ error: error.message, slots: [] }, { status: 500 });
   }
 }
 
@@ -162,6 +163,7 @@ export async function POST(req: Request) {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const drPhone = process.env.DOCTOR_PHONE!;
         const patientPhone = `+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
+        
 
         if (process.env.EMAIL_PASS) {
           const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
