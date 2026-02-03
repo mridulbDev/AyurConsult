@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "@vercel/kv": "^3.0.0",
     "dot-env": "^0.0.1",
     "dotenv": "^17.2.3",
     "googleapis": "^171.0.0",

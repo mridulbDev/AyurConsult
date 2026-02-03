@@ -61,7 +61,8 @@ export async function POST(req: Request) {
       history: patientData.history || "",
       age: patientData.age || "",
       rescheduled: false,
-      lastUpdatedBy: 'system'
+      lastUpdatedBy: 'system',
+      lastNotifiedTime: start
     });
 
     // 3. UPDATE GOOGLE CALENDAR

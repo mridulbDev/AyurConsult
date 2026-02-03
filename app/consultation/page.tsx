@@ -112,7 +112,7 @@ function ConsultationContent() {
         // Normal Flow: Open Razorpay
         const options = {
           key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
-          amount: 20000,
+          amount: Number(process.env.NEXT_PUBLIC_RAZORPAY_AMOUNT),
           currency: "INR",
           name: "Dr. Dixit Ayurveda",
           description: "Consultation Fee",

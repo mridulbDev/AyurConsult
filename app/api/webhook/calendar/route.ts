@@ -1,8 +1,7 @@
 import { google } from 'googleapis';
+import { kv } from '@vercel/kv';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
-
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 export async function POST(req: Request) {
   try {
@@ -13,105 +12,118 @@ export async function POST(req: Request) {
     });
     const calendar = google.calendar({ version: 'v3', auth });
     const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
-    const resourceUri = req.headers.get('x-goog-resource-uri');
     const resourceState = req.headers.get('x-goog-resource-state');
+    if (resourceState === 'sync') return new Response('OK', { status: 200 });
 
-    // Ignore sync pings or empty requests
-    if (resourceState === 'sync' || !resourceUri) return new Response('OK');
+    // 1. Get the last stored token
+    const syncToken = await kv.get<string>('google_calendar_sync_token');
 
-    // Extract the exact Event ID that was moved
-    const parts = resourceUri.split('/');
-    const eventId = parts[parts.length - 1];
-
-    await delay(4500); 
-
-    // 1. Fetch ONLY the event the doctor moved
-    const { data: event } = await calendar.events.get({
+    // 2. Fetch changes
+    const response = await calendar.events.list({
       calendarId: CALENDAR_ID,
-      eventId: eventId,
+      syncToken: syncToken || undefined,
     });
 
-    if (!event.summary?.includes('CONFIRMED') || !event.description || !event.start?.dateTime) {
-      return new Response('OK');
+    // 3. Immediately store the NEW token for the next trigger
+    if (response.data.nextSyncToken) {
+      await kv.set('google_calendar_sync_token', response.data.nextSyncToken);
     }
 
-    const patientData = JSON.parse(event.description);
-    const newStart = event.start.dateTime;
+    const changedEvents = response.data.items || [];
 
-    // 🛑 LOOP PROTECTION: Only proceed if the time is actually NEW
-    if (patientData.lastNotifiedTime === newStart) return new Response('OK');
+    for (const event of changedEvents) {
+      if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
-    // 2. REPLACE LOGIC: Search for an 'Available' slot at the NEW position
-    try {
-      const dayList = await calendar.events.list({
+      let patientData;
+      try {
+        patientData = JSON.parse(event.description);
+      } catch (e) { continue; }
+
+      const newStart = event.start?.dateTime;
+      if (!newStart) continue;
+
+      if (patientData.lastNotifiedTime === newStart) continue;
+
+      // 4. SLOT REPLACEMENT: Remove "Available" slot at the new location
+      try {
+        const checkSlots = await calendar.events.list({
+          calendarId: CALENDAR_ID,
+          timeMin: newStart,
+          timeMax: event.end?.dateTime!,
+          singleEvents: true,
+        });
+
+        const ghostSlot = checkSlots.data.items?.find(e => 
+          e.summary === 'Available' && e.start?.dateTime === newStart && e.id !== event.id
+        );
+
+        if (ghostSlot) {
+          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id! });
+        }
+      } catch (err) { console.log("Slot cleanup skipped or failed"); }
+
+      // 5. CONSTRUCT LINKS
+      const timeStr = new Date(newStart).toLocaleString('en-IN', {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
+      });
+      
+      // Dynamic Reschedule Link
+      const rescheduleUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
+
+      // 6. NOTIFICATIONS
+      // Email
+      try {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
+        });
+        await transporter.sendMail({
+          from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+          to: patientData.email,
+          subject: `Appointment Updated - Dr. Dixit Ayurveda`,
+          html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
+              <h2>Namaste ${patientData.name},</h2>
+              <p>Your session has been moved to: <b>${timeStr}</b></p>
+              <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="display:inline-block; background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
+              <p style="margin-top:20px; font-size:12px;">Need to change this? <a href="${rescheduleUrl}">Reschedule here</a></p>
+            </div>`
+        });
+      } catch (e) { console.error("Email failed"); }
+
+      // WhatsApp
+      try {
+        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+        await twilioClient.messages.create({
+          body: `Namaste ${patientData.name}, your session is moved to ${timeStr}.\n\nMeeting Link: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${rescheduleUrl}`,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
+        });
+      } catch (e) { console.error("WhatsApp failed"); }
+
+      // 7. UPDATE EVENT: Save state & RESET reschedule flag so patient can move it once more
+      await calendar.events.patch({
         calendarId: CALENDAR_ID,
-        timeMin: newStart, 
-        timeMax: event.end?.dateTime!,
-        singleEvents: true,
+        eventId: event.id!,
+        requestBody: { 
+          description: JSON.stringify({ 
+            ...patientData, 
+            lastNotifiedTime: newStart, 
+            rescheduled: false,
+            lastUpdatedBy: 'doctor' // Resetting this allows the patient to reschedule again after a Dr move
+          }) 
+        }
       });
-
-      const ghostSlot = dayList.data.items?.find(e => 
-        e.summary === 'Available' && e.start?.dateTime === newStart && e.id !== eventId
-      );
-
-      if (ghostSlot) {
-        console.log("Replacing Available slot at new time...");
-        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id! });
-      }
-    } catch (cleanupErr) {
-      console.log("No overlap found or cleanup failed, moving to notifications.");
     }
 
-    // 3. TRIGGER NOTIFICATIONS (Keeping your original logic exactly)
-    const timeStr = new Date(newStart).toLocaleString('en-IN', {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
-    });
-    
-    // Email
-    try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
-      });
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: patientData.email,
-        subject: `Appointment Update - Dr. Dixit Ayurveda`,
-        html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
-            <h2>Namaste ${patientData.name},</h2>
-            <p>Your session has been moved to: <b>${timeStr}</b></p>
-            <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
-          </div>`
-      });
-    } catch (e) { console.error("Email failed"); }
-
-    // WhatsApp
-    try {
-      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-      await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, your session is moved to ${timeStr}. Link: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
-        from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-        to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
-      });
-    } catch (e) { console.error("WhatsApp failed"); }
-
-    // 4. UPDATE EVENT: Save new time and reset reschedule permission
-    await calendar.events.patch({
-      calendarId: CALENDAR_ID,
-      eventId: eventId,
-      requestBody: { 
-        description: JSON.stringify({ 
-          ...patientData, 
-          rescheduled: false, 
-          lastNotifiedTime: newStart 
-        }) 
-      }
-    });
-
     return new Response('OK', { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 410) {
+      await kv.del('google_calendar_sync_token');
+      return new Response('Sync Reset', { status: 200 });
+    }
     console.error("Critical Webhook Error:", error);
-    return new Response('OK', { status: 200 });
+    return new Response('Internal Error', { status: 500 });
   }
 }

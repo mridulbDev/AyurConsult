@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
+import { kv } from '@vercel/kv';
 
 const auth = new google.auth.JWT({
   email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
@@ -19,16 +20,36 @@ export async function GET(req: Request) {
     const isSetup = searchParams.get('setup');
 
     // 🚩 ACTIVATE WEBHOOK (Trigger this by visiting /api/consultation?setup=true)
+    
+    
+    
+
     if (isSetup === 'true') {
-      const watchResponse = await calendar.events.watch({
+      // 1. Activate Webhook Watch
+      const watchRes = await calendar.events.watch({
         calendarId: CALENDAR_ID,
         requestBody: {
           id: `channel-${Date.now()}`,
-          type: 'web_rpc',
+          type: 'web_hook',
           address: `${process.env.NEXT_PUBLIC_BASE_URL}/api/calendar`,
         },
       });
-      return Response.json({ success: true, message: "Webhook Activated", details: watchResponse.data });
+
+      // 2. Initial Full Sync to get the FIRST Token
+      const response = await calendar.events.list({
+        calendarId: CALENDAR_ID,
+      });
+      const initialToken = response.data.nextSyncToken;
+      
+      if (initialToken) {
+        await kv.set('google_calendar_sync_token', initialToken);
+      }
+
+      return Response.json({ 
+        success: true, 
+        message: "Webhook and Token Initialized", 
+        tokenSet: !!initialToken 
+      });
     }
     
     if (bookingId) {
@@ -122,7 +143,7 @@ export async function POST(req: Request) {
         if (ev.id !== eventId && ev.summary === 'Available') await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
       }
 
-      const newDesc = JSON.stringify({ ...oldData, ...patientData, rescheduled: true, lastUpdatedBy: 'system' });
+      const newDesc = JSON.stringify({ ...oldData, ...patientData, rescheduled: true, lastUpdatedBy: 'user',lastNotifiedTime: start });
       const reschedUrl = `${baseUrl}/consultation?reschedule=${eventId}`;
 
       await calendar.events.patch({
@@ -179,7 +200,7 @@ export async function POST(req: Request) {
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` },
-      body: JSON.stringify({ amount: 20000, currency: "INR", notes: { booking_id: eventId } })
+      body: JSON.stringify({ amount: Number(process.env.RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
     });
     const order = await razorpayRes.json();
     return Response.json({ orderId: order.id });
