@@ -62,6 +62,11 @@ export async function POST(req: Request) {
 
     if (rescheduleId) {
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
+      if (oldEvent.data.summary === 'Available' || !oldEvent.data.description) {
+    return Response.json({ 
+      error: "This reschedule link is no longer valid. The appointment has already been moved." 
+    }, { status: 400 });
+  }
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       if (oldData.rescheduled === true) {
