@@ -60,7 +60,8 @@ export async function POST(req: Request) {
       symptoms: patientData.symptoms,
       history: patientData.history || "",
       age: patientData.age || "",
-      rescheduled: false
+      rescheduled: false,
+      lastUpdatedBy: 'system'
     });
 
     // 3. UPDATE GOOGLE CALENDAR

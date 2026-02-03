@@ -16,15 +16,17 @@ export async function POST(req: Request) {
     const resourceState = req.headers.get('x-goog-resource-state');
     if (resourceState === 'sync') return new Response('OK', { status: 200 });
 
-    // 1. Get the most recently changed event
+    // 1. Get the last 3 updated events (more reliable than a time filter)
     const list = await calendar.events.list({
       calendarId: CALENDAR_ID,
-      updatedMin: new Date(Date.now() - 30000).toISOString(), // Narrowed to 30s
+      maxResults: 3,
+      orderBy: 'updated',
       singleEvents: true,
       showDeleted: false
     });
 
-    const event = list.data.items?.find(ev => ev.summary?.startsWith('CONFIRMED'));
+    // Find any event that is a CONFIRMED appointment
+    const event = list.data.items?.find(ev => ev.summary?.includes('CONFIRMED'));
 
     if (event && event.description) {
       let patientData;
@@ -34,17 +36,13 @@ export async function POST(req: Request) {
         return new Response('Not a JSON event', { status: 200 });
       }
 
-      // 🛑 STOP INFINITE LOOP
-      // If the last update was made by this script, ignore it.
-      if (patientData.lastUpdatedBy === 'system') {
-        console.log("Skipping system-generated update to prevent loop.");
-        return new Response('OK', { status: 200 });
-      }
+      // 🛑 LOOP PREVENTION
+      if (patientData.lastUpdatedBy === 'system') return new Response('OK', { status: 200 });
 
       const start = event.start?.dateTime;
       const end = event.end?.dateTime;
 
-      // 2. CLEANUP OVERLAPS (Delete the "Available" slot at the new time)
+      // 2. CLEANUP OVERLAPS
       if (start && end) {
         const overlaps = await calendar.events.list({
           calendarId: CALENDAR_ID,
@@ -53,13 +51,14 @@ export async function POST(req: Request) {
           singleEvents: true,
         });
         for (const item of (overlaps.data.items || [])) {
+          // Delete 'Available' slots that the doctor just moved the appointment onto
           if (item.summary === 'Available' && item.id !== event.id) {
             await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: item.id! });
           }
         }
       }
 
-      // 3. UPDATE THE EVENT (Unlock for patient & Mark as System)
+      // 3. RESET RESCHEDULE FLAG (Since Doctor moved it, Patient gets 1 new move)
       patientData.rescheduled = false; 
       patientData.lastUpdatedBy = 'system'; 
 
@@ -73,50 +72,39 @@ export async function POST(req: Request) {
       });
 
       // 4. NOTIFICATIONS
-      const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' };
-      const dateOptions: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' };
-      const newTimeRange = start 
-        ? `${new Date(start).toLocaleString('en-IN', dateOptions)}, ${new Date(start).toLocaleTimeString('en-IN', timeOptions)}`
-        : "New Time";
+      const timeStr = start ? new Date(start).toLocaleString('en-IN', {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
+      }) : "New Time";
 
-      // Email Logic
+      // WhatsApp
+      if (patientData.phone && process.env.TWILIO_SID) {
+        try {
+          const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+          const phone = `whatsapp:+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
+          await twilioClient.messages.create({
+            body: `Namaste ${patientData.name}, Dr. Dixit has rescheduled your session.\n\n📅 New Time: ${timeStr}\n🔗 Link: ${meetLink}`,
+            from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+            to: phone
+          });
+        } catch (e) { console.error("Twilio Error", e); }
+      }
+
+      // Email
       if (patientData.email && process.env.EMAIL_PASS) {
         try {
-          const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
-          });
+          const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
           await transporter.sendMail({
             from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
             to: patientData.email,
             subject: `Rescheduled: Your Consultation with Dr. Dixit`,
-            html: `<div style="font-family:sans-serif; border:1px solid #eee; padding:20px;">
-              <h2 style="color:#123025;">Appointment Updated</h2>
-              <p>Namaste ${patientData.name},</p>
-              <p>Your session has been moved to: <strong>${newTimeRange}</strong></p>
-              <p><a href="${meetLink}" style="background:#123025; color:#fff; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Video Call</a></p>
-            </div>`
+            html: `<p>Namaste ${patientData.name}, your session has been moved to <b>${timeStr}</b>.</p><p><a href="${meetLink}">Join Call</a></p>`
           });
-        } catch (e) { console.error("Email fail", e); }
-      }
-
-      // WhatsApp Logic
-      if (patientData.phone && process.env.TWILIO_SID) {
-        try {
-          const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-          const formattedPhone = `whatsapp:+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
-          await twilioClient.messages.create({
-            body: `Namaste ${patientData.name}, Dr. Dixit has rescheduled your session.\n\n📅 New Time: ${newTimeRange}\n🔗 Link: ${meetLink}`,
-            from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-            to: formattedPhone
-          });
-        } catch (e) { console.error("Twilio fail", e); }
+        } catch (e) { console.error("Email Error", e); }
       }
     }
 
     return new Response('OK', { status: 200 });
   } catch (error) {
-    console.error("Webhook Error:", error);
     return new Response('Error', { status: 500 });
   }
 }

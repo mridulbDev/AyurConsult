@@ -151,7 +151,8 @@ export async function POST(req: Request) {
         ...oldData,
         ...patientData,
         rescheduled: true, // Lock the patient out
-        rescheduledAt: new Date().toISOString()
+        rescheduledAt: new Date().toISOString(),
+        lastUpdatedBy: 'system'
       });
 
       await calendar.events.patch({
@@ -175,6 +176,7 @@ export async function POST(req: Request) {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const drPhone = process.env.DOCTOR_PHONE!;
         const patientPhone = `+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
+        const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${eventId}`;
 
         if (process.env.EMAIL_PASS && process.env.DOCTOR_EMAIL) {
           const transporter = nodemailer.createTransport({
@@ -189,18 +191,19 @@ export async function POST(req: Request) {
               <h2>Reschedule Successful</h2>
               <p>Namaste ${patientData.name}, your appointment is moved to: <b>${formattedTime}</b></p>
               <p><a href="${meetLink}" style="background: #E8A856; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join Call</a></p>
+              <p style="font-size: 12px; color: #666;">If you need to change this again, please contact the doctor. You can view your booking here: <a href="${reschedUrl}">${reschedUrl}</a></p>
             </div>`
           });
         }
 
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}`,
+          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}\n Reschedule URL: ${reschedUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${patientPhone}`
         });
 
         await twilioClient.messages.create({
-          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${formattedTime}`,
+          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${formattedTime} \n🔗 *Link:* ${meetLink}\n Reschedule URL: ${reschedUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${drPhone.startsWith('+') ? drPhone : '+91' + drPhone}`
         });
