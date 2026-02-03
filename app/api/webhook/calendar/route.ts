@@ -17,55 +17,53 @@ export async function POST(req: Request) {
     const resourceUri = req.headers.get('x-goog-resource-uri');
     const resourceState = req.headers.get('x-goog-resource-state');
 
+    // Ignore sync pings or empty requests
     if (resourceState === 'sync' || !resourceUri) return new Response('OK');
 
+    // Extract the exact Event ID that was moved
     const parts = resourceUri.split('/');
     const eventId = parts[parts.length - 1];
 
     await delay(2500); 
 
+    // 1. Fetch ONLY the event the doctor moved
     const { data: event } = await calendar.events.get({
       calendarId: CALENDAR_ID,
       eventId: eventId,
     });
 
-    // Ensure we have a confirmed event and valid timestamps to avoid red lines
-    if (!event.summary?.includes('CONFIRMED') || !event.description || !event.start?.dateTime || !event.end?.dateTime) {
+    if (!event.summary?.includes('CONFIRMED') || !event.description || !event.start?.dateTime) {
       return new Response('OK');
     }
 
     const patientData = JSON.parse(event.description);
     const newStart = event.start.dateTime;
-    const newEnd = event.end.dateTime;
 
-    // 🛑 TRIGGER FIX: If time is same, doctor didn't move it
+    // 🛑 LOOP PROTECTION: Only proceed if the time is actually NEW
     if (patientData.lastNotifiedTime === newStart) return new Response('OK');
 
-    // 2. REPLACE LOGIC: Check exactly where the event landed
+    // 2. REPLACE LOGIC: Search for an 'Available' slot at the NEW position
     try {
-      const slotCheck = await calendar.events.list({
+      const dayList = await calendar.events.list({
         calendarId: CALENDAR_ID,
-        timeMin: newStart,
-        timeMax: newEnd,
+        timeMin: newStart, 
+        timeMax: event.end?.dateTime!,
         singleEvents: true,
       });
 
-      // Find any 'Available' slot sitting exactly at the new drop location
-      const ghostSlots = (slotCheck.data.items || []).filter(item => 
-        item.summary === 'Available' && item.id !== eventId
+      const ghostSlot = dayList.data.items?.find(e => 
+        e.summary === 'Available' && e.start?.dateTime === newStart && e.id !== eventId
       );
 
-      for (const slot of ghostSlots) {
-        if (slot.id) {
-          console.log("Replacing Available slot...");
-          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id });
-        }
+      if (ghostSlot) {
+        console.log("Replacing Available slot at new time...");
+        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id! });
       }
     } catch (cleanupErr) {
-      console.error("Cleanup failed:", cleanupErr);
+      console.log("No overlap found or cleanup failed, moving to notifications.");
     }
 
-    // 3. TRIGGER NOTIFICATIONS
+    // 3. TRIGGER NOTIFICATIONS (Keeping your original logic exactly)
     const timeStr = new Date(newStart).toLocaleString('en-IN', {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
     });
@@ -86,7 +84,7 @@ export async function POST(req: Request) {
             <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
           </div>`
       });
-    } catch (e) { console.error("Email failed", e); }
+    } catch (e) { console.error("Email failed"); }
 
     // WhatsApp
     try {
@@ -96,9 +94,9 @@ export async function POST(req: Request) {
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
         to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
       });
-    } catch (e) { console.error("WhatsApp failed", e); }
+    } catch (e) { console.error("WhatsApp failed"); }
 
-    // 4. UPDATE EVENT: Mark as notified to stop loop
+    // 4. UPDATE EVENT: Save new time and reset reschedule permission
     await calendar.events.patch({
       calendarId: CALENDAR_ID,
       eventId: eventId,

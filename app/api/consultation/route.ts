@@ -18,9 +18,17 @@ export async function GET(req: Request) {
     const bookingId = searchParams.get('bookingId');
     const isSetup = searchParams.get('setup');
 
+    // 🚩 ACTIVATE WEBHOOK (Trigger this by visiting /api/consultation?setup=true)
     if (isSetup === 'true') {
-      await calendar.calendarList.get({ calendarId: CALENDAR_ID });
-      return Response.json({ success: true });
+      const watchResponse = await calendar.events.watch({
+        calendarId: CALENDAR_ID,
+        requestBody: {
+          id: `channel-${Date.now()}`,
+          type: 'web_rpc',
+          address: `${process.env.NEXT_PUBLIC_BASE_URL}/api/calendar`,
+        },
+      });
+      return Response.json({ success: true, message: "Webhook Activated", details: watchResponse.data });
     }
     
     if (bookingId) {
@@ -49,7 +57,6 @@ export async function GET(req: Request) {
         try {
           const data = JSON.parse(ev.description || '{}');
           const elapsed = now - (data.pendingAt || 0);
-
           if (elapsed > 600000) {
             calendar.events.patch({
               calendarId: CALENDAR_ID,
@@ -69,7 +76,6 @@ export async function GET(req: Request) {
     }
 
     const processedSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
-
     return Response.json({ slots: processedSlots });
   } catch (error) {
     return Response.json({ slots: [] }, { status: 500 });
@@ -81,10 +87,6 @@ export async function POST(req: Request) {
     const { eventId, patientData, rescheduleId } = await req.json();
     const meetLink = process.env.NEXT_PUBLIC_MEET_LINK || "https://meet.google.com/kzq-tfhm-wjp";
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-
-    // --- FETCH TARGET SLOT DETAILS FIRST ---
-    const targetSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
-    const start = targetSlot.data.start?.dateTime;
 
     if (rescheduleId) {
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
@@ -101,6 +103,9 @@ export async function POST(req: Request) {
         return Response.json({ error: "This appointment has already been rescheduled once. Further changes are not permitted." }, { status: 400 });
       }
 
+      const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
+      const start = newSlot.data.start?.dateTime;
+
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: rescheduleId,
@@ -110,22 +115,14 @@ export async function POST(req: Request) {
       const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: start!,
-        timeMax: targetSlot.data.end?.dateTime!,
+        timeMax: newSlot.data.end?.dateTime!,
         singleEvents: true
       });
       for (const ev of (overlaps.data.items || [])) {
         if (ev.id !== eventId && ev.summary === 'Available') await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
       }
 
-      // Updated description with lastNotifiedTime
-      const newDesc = JSON.stringify({ 
-        ...oldData, 
-        ...patientData, 
-        rescheduled: true, 
-        lastUpdatedBy: 'system',
-        lastNotifiedTime: start 
-      });
-      
+      const newDesc = JSON.stringify({ ...oldData, ...patientData, rescheduled: true, lastUpdatedBy: 'system' });
       const reschedUrl = `${baseUrl}/consultation?reschedule=${eventId}`;
 
       await calendar.events.patch({
@@ -154,20 +151,20 @@ export async function POST(req: Request) {
             html: `<div style="font-family: sans-serif; padding: 20px; color: #123025;">
               <h2>Reschedule Successful</h2>
               <p>Namaste ${patientData.name}, your appointment is moved to: <b>${timeStr}</b></p>
-              <p><a href="${meetLink}" style="background: #123025; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join Call</a></p>
-              <p style="font-size: 12px; color: #666;">View/Reschedule: <a href="${reschedUrl}">${reschedUrl}</a></p>
+              <p><a href="${meetLink}" style="background: #E8A856; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join Call</a></p>
+              <p style="font-size: 12px; color: #666;">If you need to change this again, please contact the doctor. You can view your booking here: <a href="${reschedUrl}">${reschedUrl}</a></p>
             </div>`
           });
         }
 
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 New Time: ${timeStr}\n🔗 Link: ${meetLink}`,
+          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${timeStr}\n🔗 *Link:* ${meetLink}\nView/Reschedule: ${reschedUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${patientPhone}`
         });
 
         await twilioClient.messages.create({
-          body: `🔄 Reschedule Alert\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${timeStr}`,
+          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${timeStr}\n🔗 Link: ${meetLink}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${drPhone.startsWith('+') ? drPhone : '+91' + drPhone}`
         });
@@ -176,15 +173,7 @@ export async function POST(req: Request) {
       return Response.json({ success: true });
     }
 
-    // --- NORMAL PENDING FLOW ---
-    const pendingPayload = JSON.stringify({ 
-      ...patientData, 
-      pendingAt: Date.now(), 
-      rescheduled: false, 
-      lastUpdatedBy: 'system',
-      lastNotifiedTime: start 
-    });
-
+    const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'system' });
     await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
 
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
@@ -195,7 +184,6 @@ export async function POST(req: Request) {
     const order = await razorpayRes.json();
     return Response.json({ orderId: order.id });
   } catch (error) {
-    console.error("POST Error:", error);
     return Response.json({ error: "Failed" }, { status: 500 });
   }
 }
