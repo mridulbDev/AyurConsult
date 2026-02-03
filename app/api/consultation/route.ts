@@ -34,7 +34,7 @@ export async function GET(req: Request) {
         requestBody: {
           id: `dr-dixit-sub-${Date.now()}`,
           type: 'web_hook',
-          address: `${process}/api/calendar`, // Point to your webhook receiver
+          address: `${process.env.NEXT_PUBLIC_BASE_URL}/api/calendar`, // Point to your webhook receiver
         },
       });
 
