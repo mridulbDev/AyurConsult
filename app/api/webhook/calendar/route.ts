@@ -13,25 +13,29 @@ export async function POST(req: Request) {
     });
     const calendar = google.calendar({ version: 'v3', auth });
     const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
+    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
+    // Google Webhook headers
     const resourceUri = req.headers.get('x-goog-resource-uri');
     const resourceState = req.headers.get('x-goog-resource-state');
 
-    // Ignore sync pings or empty requests
-    if (resourceState === 'sync' || !resourceUri) return new Response('OK');
+    // 1. Initial Handshake & Validation
+    if (resourceState === 'sync' || !resourceUri) return new Response('OK', { status: 200 });
 
-    // Extract the exact Event ID that was moved
+    // Extract exactly which event was moved
     const parts = resourceUri.split('/');
     const eventId = parts[parts.length - 1];
 
-    await delay(2500); 
+    await delay(2000); 
 
-    // 1. Fetch ONLY the event the doctor moved
+    // 2. Fetch the specific event directly using ID
     const { data: event } = await calendar.events.get({
       calendarId: CALENDAR_ID,
       eventId: eventId,
     });
 
+    // Only proceed if it's a confirmed patient booking
     if (!event.summary?.includes('CONFIRMED') || !event.description || !event.start?.dateTime) {
       return new Response('OK');
     }
@@ -39,35 +43,38 @@ export async function POST(req: Request) {
     const patientData = JSON.parse(event.description);
     const newStart = event.start.dateTime;
 
-    // 🛑 LOOP PROTECTION: Only proceed if the time is actually NEW
-    if (patientData.lastNotifiedTime === newStart) return new Response('OK');
-
-    // 2. REPLACE LOGIC: Search for an 'Available' slot at the NEW position
-    try {
-      const dayList = await calendar.events.list({
-        calendarId: CALENDAR_ID,
-        timeMin: new Date(new Date(newStart).setHours(0,0,0,0)).toISOString(),
-        timeMax: new Date(new Date(newStart).setHours(23,59,59,999)).toISOString(),
-        singleEvents: true,
-      });
-
-      const ghostSlot = dayList.data.items?.find(e => 
-        e.summary === 'Available' && e.start?.dateTime === newStart
-      );
-
-      if (ghostSlot) {
-        console.log("Replacing Available slot at new time...");
-        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id! });
-      }
-    } catch (cleanupErr) {
-      console.log("No overlap found or cleanup failed, moving to notifications.");
+    // 🛑 LOOP PROTECTION: Don't trigger if the time hasn't actually changed
+    if (patientData.lastNotifiedTime === newStart) {
+        return new Response('OK');
     }
 
-    // 3. TRIGGER NOTIFICATIONS (Always happens on move)
+    // --- 3. THE "REPLACE" FEATURE (FIX OVERLAP) ---
+    // Fetch events for the day to find the "Available" slot sitting under our moved event
+    const dayStart = new Date(newStart); dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(newStart); dayEnd.setHours(23,59,59,999);
+
+    const dayList = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin: dayStart.toISOString(),
+      timeMax: dayEnd.toISOString(),
+      singleEvents: true,
+    });
+
+    const ghostSlot = dayList.data.items?.find(e => 
+      e.summary === 'Available' && e.start?.dateTime === newStart
+    );
+
+    if (ghostSlot) {
+      console.log("Physical overlap found. Deleting 'Available' slot...");
+      await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id! });
+    }
+
+    // --- 4. TRIGGER EMAIL & WHATSAPP ---
     const timeStr = new Date(newStart).toLocaleString('en-IN', {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
     });
-    
+    const reschedUrl = `${baseUrl}/consultation?reschedule=${eventId}`;
+
     // Email
     try {
       const transporter = nodemailer.createTransport({
@@ -77,26 +84,29 @@ export async function POST(req: Request) {
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: patientData.email,
-        subject: `Appointment Update - Dr. Dixit Ayurveda`,
+        subject: `Appointment Moved - Dr. Dixit Ayurveda`,
         html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
             <h2>Namaste ${patientData.name},</h2>
-            <p>Your session has been moved to: <b>${timeStr}</b></p>
-            <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
+            <p>Your appointment has been moved to a new slot: <b>${timeStr}</b></p>
+            <p><a href="${meetLink}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
+            <hr style="border:none; border-top:1px solid #eee; margin:20px 0;"/>
+            <p style="font-size: 11px;">If you need to change this, use your link: <a href="${reschedUrl}">${reschedUrl}</a></p>
           </div>`
       });
-    } catch (e) { console.error("Email failed"); }
+    } catch (e) { console.error("Email failed", e); }
 
     // WhatsApp
     try {
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, your session is moved to ${timeStr}. Link: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
+        body: `Namaste ${patientData.name}, your session is moved to ${timeStr}.\n🔗 Link: ${meetLink}\nManage: ${reschedUrl}`,
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
         to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
       });
-    } catch (e) { console.error("WhatsApp failed"); }
+    } catch (e) { console.error("WhatsApp failed", e); }
 
-    // 4. UPDATE EVENT: Save new time and reset reschedule permission
+    // --- 5. FINALIZE: Reset limit and update state ---
+    // We set rescheduled: false so the patient can move it again after the doctor moves it.
     await calendar.events.patch({
       calendarId: CALENDAR_ID,
       eventId: eventId,
