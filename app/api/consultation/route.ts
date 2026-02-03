@@ -9,12 +9,13 @@ const auth = new google.auth.JWT({
   scopes: ['https://www.googleapis.com/auth/calendar'],
 });
 const calendar = google.calendar({ version: 'v3', auth });
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
+    if (!date) return Response.json({ slots: [] });
 
     const response = await calendar.events.list({
       calendarId: CALENDAR_ID,
@@ -25,132 +26,146 @@ export async function GET(req: Request) {
 
     const allItems = response.data.items || [];
     const now = Date.now();
-    const processedSlots = [];
+    
+    const bookedTimes = new Set(
+      allItems
+        .filter(ev => ev.summary?.startsWith('CONFIRMED') || ev.summary?.startsWith('PENDING'))
+        .map(ev => ev.start?.dateTime)
+    );
 
-    // AUTO-CLEANUP: Check for expired PENDING slots (older than 10 mins)
+    const processedSlots = [];
     for (const ev of allItems) {
       if (ev.summary?.startsWith('PENDING')) {
         try {
           const data = JSON.parse(ev.description || '{}');
-          const pendingAt = data.pendingAt || 0;
-
-          if (now - pendingAt > 600000) { // 10 minutes in milliseconds
+          if (now - (data.pendingAt || 0) > 600000) {
             await calendar.events.patch({
               calendarId: CALENDAR_ID,
               eventId: ev.id!,
               requestBody: { summary: 'Available', description: '' }
             });
-            ev.summary = 'Available'; 
+            ev.summary = 'Available';
           }
-        } catch (e) {
-          console.error("Cleanup parse error for event:", ev.id);
-        }
+        } catch (e) { console.error("Cleanup error", e); }
       }
 
-      if (ev.summary === 'Available') {
+      if (ev.summary === 'Available' && !bookedTimes.has(ev.start?.dateTime)) {
         processedSlots.push(ev);
       }
     }
-
     return Response.json({ slots: processedSlots });
   } catch (error) {
-    console.error("GET Slots Error:", error);
     return Response.json({ slots: [] }, { status: 500 });
   }
 }
 
-
-
-
-
-
-
 export async function POST(req: Request) {
   try {
     const { eventId, patientData, rescheduleId } = await req.json();
-    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
+    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK || "https://meet.google.com/kzq-tfhm-wjp";
+
+    const descriptionData = JSON.stringify({
+      name: patientData.name,
+      phone: patientData.phone,
+      email: patientData.email,
+      symptoms: patientData.symptoms,
+      history: patientData.history || "",
+      age: patientData.age || ""
+    });
 
     // --- CASE 1: RESCHEDULE ---
     if (rescheduleId) {
-      // 1. Mark old event as available
+      const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
+      const startTime = newSlot.data.start?.dateTime;
+      const endTime = newSlot.data.end?.dateTime;
+
+      // 1. WIPE OLD SLOT
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: rescheduleId,
-        requestBody: { summary: 'Available', description: '' }
+        requestBody: { summary: 'Available', description: '', location: '' }
       });
 
-      // 2. Mark new event as confirmed and save patient data to description
-      const update = await calendar.events.patch({
+      // 2. CLEANUP DUPLICATES AT NEW TIME
+      if (startTime && endTime) {
+        const existingEvents = await calendar.events.list({
+          calendarId: CALENDAR_ID,
+          timeMin: startTime,
+          timeMax: endTime,
+          singleEvents: true,
+        });
+        for (const ev of (existingEvents.data.items || [])) {
+          if (ev.id !== eventId && ev.summary === 'Available') {
+            await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
+          }
+        }
+      }
+
+      // 3. CONFIRM NEW SLOT
+      await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: eventId,
         requestBody: {
           summary: `CONFIRMED: ${patientData.name}`,
           location: meetLink,
-          description: `PATIENT: ${patientData.name}\nPHONE: ${patientData.phone}\nEMAIL: ${patientData.email}\nSYMPTOMS: ${patientData.symptoms}\n(Rescheduled)`.trim()
+          description: descriptionData
         }
       });
 
-      // 3. Format Time Range
-      const start = update.data.start?.dateTime;
-      const end = update.data.end?.dateTime;
-      const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' };
-      const dateOptions: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' };
-
-      const formattedTime = start && end
-        ? `${new Date(start).toLocaleString('en-IN', dateOptions)}, ${new Date(start).toLocaleTimeString('en-IN', timeOptions)} - ${new Date(end).toLocaleTimeString('en-IN', timeOptions)}`
+      const formattedTime = startTime 
+        ? new Date(startTime).toLocaleString('en-IN', { 
+            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
+          }) 
         : "Scheduled Time";
 
-      // --- 4. NOTIFY VIA WHATSAPP/SMS ---
+      // 4. NOTIFICATIONS (Twilio & Nodemailer)
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-        const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
-        const formattedPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
-
-        // Send WhatsApp
+        const drPhone = process.env.DOCTOR_PHONE!;
+        const patientPhone = `+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
+        
+        // WhatsApp to Patient
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, your reschedule is successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}`,
+          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: `whatsapp:${formattedPhone}`
+          to: `whatsapp:${patientPhone}`
         });
-      } catch (e) { console.error("Twilio Reschedule Notify Error:", e); }
 
-      // --- 5. NOTIFY VIA EMAIL ---
-      if (patientData.email && process.env.EMAIL_PASS) {
-        try {
+        // WhatsApp to Doctor
+        await twilioClient.messages.create({
+          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${formattedTime}`,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:${drPhone.startsWith('+') ? drPhone : '+91' + drPhone}`
+        });
+
+        // Email to Patient
+        if (process.env.EMAIL_PASS && process.env.DOCTOR_EMAIL) {
           const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
           });
-
           await transporter.sendMail({
             from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
             to: patientData.email,
-            subject: `Rescheduled Successfully: ${patientData.name}`,
-            html: `
-              <div style="font-family: sans-serif; padding: 20px; color: #123025; border: 1px solid #eee; border-radius: 10px;">
-                <h2 style="color: #123025;">Reschedule Confirmed</h2>
-                <p>Namaste <strong>${patientData.name}</strong>,</p>
-                <p>Your appointment has been successfully moved to:</p>
-                <p style="font-size: 18px; font-weight: bold; color: #E8A856;">${formattedTime}</p>
-                <p>Meeting Link (remains same): <a href="${meetLink}">${meetLink}</a></p>
-              </div>
-            `
+            subject: `Reschedule Confirmed - ${patientData.name}`,
+            html: `<div style="font-family: sans-serif; padding: 20px; color: #123025;">
+              <h2>Reschedule Successful</h2>
+              <p>Namaste ${patientData.name}, your appointment is moved to: <b>${formattedTime}</b></p>
+              <p><a href="${meetLink}" style="background: #E8A856; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join Call</a></p>
+            </div>`
           });
-        } catch (e) { console.error("Email Reschedule Notify Error:", e); }
-      }
+        }
+      } catch (e) { console.error("Notification Error", e); }
 
       return Response.json({ success: true });
     }
 
-    // --- CASE 2: NEW BOOKING (Logic stays the same) ---
-    const pendingPayload = { ...patientData, pendingAt: Date.now() };
+    // --- CASE 2: NEW BOOKING (PENDING) ---
+    const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now() });
     await calendar.events.patch({
       calendarId: CALENDAR_ID, 
       eventId: eventId,
-      requestBody: {
-        summary: `PENDING: ${patientData.name}`,
-        description: JSON.stringify(pendingPayload) 
-      }
+      requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload }
     });
 
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
@@ -159,11 +174,7 @@ export async function POST(req: Request) {
         'Content-Type': 'application/json',
         'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}`
       },
-      body: JSON.stringify({
-        amount: 20000, // Matching your frontend 200.00
-        currency: "INR",
-        notes: { booking_id: eventId }
-      })
+      body: JSON.stringify({ amount: 20000, currency: "INR", notes: { booking_id: eventId } })
     });
 
     const order = await razorpayRes.json();
@@ -171,6 +182,6 @@ export async function POST(req: Request) {
 
   } catch (error) {
     console.error("POST Error:", error);
-    return Response.json({ error: "Operation Failed" }, { status: 500 });
+    return Response.json({ error: "Failed" }, { status: 500 });
   }
 }
