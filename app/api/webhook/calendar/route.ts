@@ -16,106 +16,90 @@ export async function POST(req: Request) {
     const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
-    const resourceState = req.headers.get('x-goog-resource-state');
-    if (resourceState === 'sync') return new Response('OK', { status: 200 });
+    if (req.headers.get('x-goog-resource-state') === 'sync') return new Response('OK');
 
-    // 1. Wait for Google to index the move
-    await delay(2500);
+    await delay(2500); // Wait for Google to register the move
 
-    // 2. Fetch recently updated events
+    // 1. Get all events for the current window to find overlaps
     const list = await calendar.events.list({
       calendarId: CALENDAR_ID,
-      updatedMin: new Date(Date.now() - 120000).toISOString(),
+      timeMin: new Date(Date.now() - 86400000).toISOString(), // Check 24h window
       singleEvents: true,
-      orderBy: 'updated',
     });
 
-    const items = list.data.items || [];
-    const event = items.reverse().find(ev => ev.summary?.includes('CONFIRMED'));
+    const allEvents = list.data.items || [];
+
+    // 2. Identify the Confirmed event and any Available slot at the same time
+    const confirmedEvents = allEvents.filter(e => e.summary?.includes('CONFIRMED'));
     
-    if (!event || !event.description || !event.start?.dateTime) return new Response('OK', { status: 200 });
+    for (const confEvent of confirmedEvents) {
+      const startTime = confEvent.start?.dateTime;
+      if (!startTime) continue;
 
-    const patientData = JSON.parse(event.description);
+      // Check if this Confirmed event is sitting on an "Available" slot
+      const overlappingAvailable = allEvents.find(e => 
+        e.summary === 'Available' && 
+        e.start?.dateTime === startTime && 
+        e.id !== confEvent.id
+      );
 
-    // 🛑 LOOP PROTECTION
-    // Skip if we (the system) were the last ones to touch this event
-    if (patientData.lastUpdatedBy === 'system') {
-      console.log("System update detected, resetting flag only.");
-      await calendar.events.patch({
-        calendarId: CALENDAR_ID,
-        eventId: event.id!,
-        requestBody: { description: JSON.stringify({ ...patientData, lastUpdatedBy: 'doctor' }) }
-      });
-      return new Response('OK', { status: 200 });
-    }
+      if (overlappingAvailable) {
+        console.log("Overlap detected. Replacing slot...");
 
-    const start = event.start.dateTime;
+        // A. Delete the Available slot immediately
+        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: overlappingAvailable.id! });
 
-    // --- 3. REPLACE LOGIC: CLEAN OVERLAPS ---
-    // Look for any 'Available' event starting at the EXACT same time
-    const dayStart = new Date(start); dayStart.setHours(0,0,0,0);
-    const dayEnd = new Date(start); dayEnd.setHours(23,59,59,999);
+        // B. Parse Patient Data
+        const patientData = JSON.parse(confEvent.description || '{}');
 
-    const dayList = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      timeMin: dayStart.toISOString(),
-      timeMax: dayEnd.toISOString(),
-      singleEvents: true,
-    });
+        // C. Send Notifications
+        const timeStr = new Date(startTime).toLocaleString('en-IN', {
+          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
+        });
+        const reschedUrl = `${baseUrl}/consultation?reschedule=${confEvent.id}`;
 
-    const duplicate = dayList.data.items?.find(
-      item => item.summary === 'Available' && item.start?.dateTime === start
-    );
+        // Nodemailer
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
+        });
 
-    if (duplicate) {
-      console.log("Deleting overlapping Available slot...");
-      await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: duplicate.id! });
-    }
+        await transporter.sendMail({
+          from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+          to: patientData.email,
+          subject: `Rescheduled: Your Appointment with Dr. Dixit`,
+          html: `<div style="font-family: sans-serif; padding: 20px; color: #123025; border: 1px solid #eee;">
+              <h2>Namaste ${patientData.name},</h2>
+              <p>Dr. Dixit has adjusted your consultation time to: <b>${timeStr}</b></p>
+              <p><a href="${meetLink}" style="background:#123025; color:white; padding:12px 25px; text-decoration:none; border-radius:5px; font-weight:bold;">Join Video Call</a></p>
+              <p><b>Details:</b><br/>Symptoms: ${patientData.symptoms || 'N/A'}</p>
+              <hr style="border:none; border-top:1px solid #eee; margin: 20px 0;" />
+              <p style="font-size: 12px; color: #666;">Need to move this? Use your link: <a href="${reschedUrl}">${reschedUrl}</a></p>
+            </div>`
+        });
 
-    // --- 4. SEND NOTIFICATIONS ---
-    const timeStr = new Date(start).toLocaleString('en-IN', {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
-    });
-    const reschedUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
+        // WhatsApp
+        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+        await twilioClient.messages.create({
+          body: `Namaste ${patientData.name}, Dr. Dixit has rescheduled your session.\n📅 Time: ${timeStr}\n🔗 Join: ${meetLink}\n🔗 Manage: ${reschedUrl}`,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
+        });
 
-    // Gmail
-    try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
-      });
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: patientData.email,
-        subject: `Appointment Update - Dr. Dixit Ayurveda`,
-        html: `<div style="font-family: sans-serif; padding: 20px; color: #123025; border: 1px solid #eee;">
-            <h2>Namaste ${patientData.name},</h2>
-            <p>Dr. Dixit has adjusted your consultation time to: <b>${timeStr}</b></p>
-            <p><a href="${meetLink}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Video Call</a></p>
-            <p><b>Symptoms:</b> ${patientData.symptoms || 'N/A'}</p>
-            <p style="font-size: 11px;">Manage booking: <a href="${reschedUrl}">${reschedUrl}</a></p>
-          </div>`
-      });
-    } catch (e) { console.error("Email fail:", e); }
-
-    // WhatsApp
-    try {
-      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-      await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, Dr. Dixit has rescheduled your session.\n📅 Time: ${timeStr}\n🔗 Join: ${meetLink}`,
-        from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-        to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
-      });
-    } catch (e) { console.error("WhatsApp fail:", e); }
-
-    // 5. FINAL PATCH (Mark as system to stop loop)
-    await calendar.events.patch({
-      calendarId: CALENDAR_ID,
-      eventId: event.id!,
-      requestBody: { 
-        description: JSON.stringify({ ...patientData, lastUpdatedBy: 'system' }) 
+        // D. Reset patient's reschedule limit and mark as system updated
+        await calendar.events.patch({
+          calendarId: CALENDAR_ID,
+          eventId: confEvent.id!,
+          requestBody: { 
+            description: JSON.stringify({ 
+              ...patientData, 
+              rescheduled: false, // Allows patient to reschedule again
+              lastUpdatedBy: 'system' 
+            }) 
+          }
+        });
       }
-    });
+    }
 
     return new Response('OK', { status: 200 });
   } catch (error) {
