@@ -59,7 +59,8 @@ export async function POST(req: Request) {
       email: patientData.email,
       symptoms: patientData.symptoms,
       history: patientData.history || "",
-      age: patientData.age || ""
+      age: patientData.age || "",
+      rescheduled: false
     });
 
     // 3. UPDATE GOOGLE CALENDAR

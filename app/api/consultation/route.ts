@@ -75,6 +75,22 @@ export async function POST(req: Request) {
 
     // --- CASE 1: RESCHEDULE ---
     if (rescheduleId) {
+
+      // 1. Get the OLD event to check if it has already been rescheduled
+  const oldEventRes = await calendar.events.get({
+    calendarId: CALENDAR_ID,
+    eventId: rescheduleId,
+  });
+
+  const oldData = JSON.parse(oldEventRes.data.description || '{}');
+
+  // 🛑 CHECK: One-time limit
+  if (oldData.rescheduled === true) {
+    return Response.json(
+      { error: "This appointment has already been rescheduled once. Further changes are not permitted." },
+      { status: 400 }
+    );
+  }
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const startTime = newSlot.data.start?.dateTime;
       const endTime = newSlot.data.end?.dateTime;
@@ -102,15 +118,21 @@ export async function POST(req: Request) {
       }
 
       // 3. CONFIRM NEW SLOT
-      await calendar.events.patch({
-        calendarId: CALENDAR_ID,
-        eventId: eventId,
-        requestBody: {
-          summary: `CONFIRMED: ${patientData.name}`,
-          location: meetLink,
-          description: descriptionData
-        }
-      });
+      const newDescriptionData = JSON.stringify({
+    ...patientData,
+    rescheduled: true, // 🚩 The flag that prevents future reschedules
+    rescheduledAt: new Date().toISOString()
+  });
+
+  await calendar.events.patch({
+    calendarId: CALENDAR_ID,
+    eventId: eventId,
+    requestBody: {
+      summary: `CONFIRMED (Rescheduled): ${patientData.name}`,
+      location: meetLink,
+      description: newDescriptionData
+    }
+  });
 
       const formattedTime = startTime 
         ? new Date(startTime).toLocaleString('en-IN', { 
@@ -123,20 +145,6 @@ export async function POST(req: Request) {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const drPhone = process.env.DOCTOR_PHONE!;
         const patientPhone = `+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
-        
-        // WhatsApp to Patient
-        await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}`,
-          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: `whatsapp:${patientPhone}`
-        });
-
-        // WhatsApp to Doctor
-        await twilioClient.messages.create({
-          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${formattedTime}`,
-          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: `whatsapp:${drPhone.startsWith('+') ? drPhone : '+91' + drPhone}`
-        });
 
         // Email to Patient
         if (process.env.EMAIL_PASS && process.env.DOCTOR_EMAIL) {
@@ -155,6 +163,22 @@ export async function POST(req: Request) {
             </div>`
           });
         }
+        
+        // WhatsApp to Patient
+        await twilioClient.messages.create({
+          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${formattedTime}\n🔗 *Link:* ${meetLink}`,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:${patientPhone}`
+        });
+
+        // WhatsApp to Doctor
+        await twilioClient.messages.create({
+          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${formattedTime}`,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:${drPhone.startsWith('+') ? drPhone : '+91' + drPhone}`
+        });
+
+        
       } catch (e) { console.error("Notification Error", e); }
 
       return Response.json({ success: true });
