@@ -16,6 +16,14 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
     const bookingId = searchParams.get('bookingId');
+    const isSetup = searchParams.get('setup');
+
+    // --- CRON JOB SETUP / KEEP-ALIVE ---
+    if (isSetup === 'true') {
+      console.log("Cron Job: Refreshing Calendar Auth & Connection");
+      await calendar.calendarList.get({ calendarId: CALENDAR_ID });
+      return Response.json({ success: true, message: "Calendar connection warmed." });
+    }
     
     if (bookingId) {
       const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
@@ -35,14 +43,27 @@ export async function GET(req: Request) {
     const now = Date.now();
     const bookedTimes = new Set();
 
-    allItems.forEach(ev => {
+    // Loop through all items to handle PENDING cleanup and identify booked slots
+    for (const ev of allItems) {
       if (ev.summary?.startsWith('CONFIRMED')) {
         bookedTimes.add(ev.start?.dateTime);
       } else if (ev.summary?.startsWith('PENDING')) {
         const data = JSON.parse(ev.description || '{}');
-        if (now - (data.pendingAt || 0) < 600000) bookedTimes.add(ev.start?.dateTime);
+        const elapsed = now - (data.pendingAt || 0);
+
+        // --- PENDING CLEANUP (10 Mins) ---
+        if (elapsed > 600000) {
+          await calendar.events.patch({
+            calendarId: CALENDAR_ID,
+            eventId: ev.id!,
+            requestBody: { summary: 'Available', description: '', location: '' }
+          });
+          // Do NOT add to bookedTimes so it shows as available in this request
+        } else {
+          bookedTimes.add(ev.start?.dateTime);
+        }
       }
-    });
+    }
 
     const processedSlots = allItems.filter(ev => 
       ev.summary === 'Available' && !bookedTimes.has(ev.start?.dateTime)
@@ -50,6 +71,7 @@ export async function GET(req: Request) {
 
     return Response.json({ slots: processedSlots });
   } catch (error) {
+    console.error("GET Error:", error);
     return Response.json({ slots: [] }, { status: 500 });
   }
 }
@@ -62,11 +84,14 @@ export async function POST(req: Request) {
 
     if (rescheduleId) {
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
+      
+      // Check if link is already used/dead
       if (oldEvent.data.summary === 'Available' || !oldEvent.data.description) {
-    return Response.json({ 
-      error: "This reschedule link is no longer valid. The appointment has already been moved." 
-    }, { status: 400 });
-  }
+        return Response.json({ 
+          error: "This reschedule link is no longer valid. The appointment has already been moved." 
+        }, { status: 400 });
+      }
+
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       if (oldData.rescheduled === true) {
@@ -76,6 +101,7 @@ export async function POST(req: Request) {
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
 
+      // Reset old slot
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: rescheduleId,
@@ -144,7 +170,8 @@ export async function POST(req: Request) {
       return Response.json({ success: true });
     }
 
-    const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false });
+    // New Booking (Pending)
+    const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'system' });
     await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
 
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
