@@ -16,6 +16,33 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
     const bookingId = searchParams.get('bookingId');
+    
+  const isSetup = searchParams.get('setup'); // Look for ?setup=true
+
+  // --- NEW SETUP LOGIC ---
+  if (isSetup === 'true') {
+    try {
+      const auth = new google.auth.JWT({
+        email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
+        key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        scopes: ['https://www.googleapis.com/auth/calendar'],
+      });
+      const calendar = google.calendar({ version: 'v3', auth });
+
+      const watchRes = await calendar.events.watch({
+        calendarId: process.env.GOOGLE_CALENDAR_ID!,
+        requestBody: {
+          id: `dr-dixit-sub-${Date.now()}`,
+          type: 'web_hook',
+          address: `${process}/api/calendar`, // Point to your webhook receiver
+        },
+      });
+
+      return Response.json({ success: true, message: "Watch active", details: watchRes.data });
+    } catch (err: any) {
+      return Response.json({ error: err.message }, { status: 500 });
+    }
+  }
 
     if (bookingId) {
       const event = await calendar.events.get({
