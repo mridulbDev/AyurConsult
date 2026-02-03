@@ -2,6 +2,8 @@ import { google } from 'googleapis';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
 
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 export async function POST(req: Request) {
   try {
     const auth = new google.auth.JWT({
@@ -17,33 +19,27 @@ export async function POST(req: Request) {
     const resourceState = req.headers.get('x-goog-resource-state');
     if (resourceState === 'sync') return new Response('OK', { status: 200 });
 
-    // 1. Get events updated in the last 20 seconds
+    // Give Google a moment to settle the move
+    await delay(1000);
+
     const list = await calendar.events.list({
       calendarId: CALENDAR_ID,
-      updatedMin: new Date(Date.now() - 20000).toISOString(),
+      updatedMin: new Date(Date.now() - 40000).toISOString(),
       singleEvents: true,
       orderBy: 'updated',
     });
 
-    // Find the confirmed event that was just moved
+    // Get the most recently updated Confirmed event
     const event = list.data.items?.reverse().find(ev => ev.summary?.includes('CONFIRMED'));
     
-    if (!event || !event.description) {
-      return new Response('No confirmed event found', { status: 200 });
-    }
+    if (!event || !event.description) return new Response('OK', { status: 200 });
 
-    let patientData;
-    try {
-      patientData = JSON.parse(event.description);
-    } catch (e) {
-      return new Response('Description not JSON', { status: 200 });
-    }
+    const patientData = JSON.parse(event.description);
 
-    // 🛑 CRITICAL: STOP THE INFINITE LOOP
-    // If the system just updated this event, stop here so we don't notify/overlap again.
+    // 🛑 LOOP PROTECTION
+    // If 'system' moved it, we already sent the email in the previous execution.
+    // We just flip the flag back to 'doctor' and exit.
     if (patientData.lastUpdatedBy === 'system') {
-      console.log("System update detected, skipping webhook logic to prevent loop.");
-      // Flip the flag to 'doctor' for the NEXT manual move
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
@@ -51,35 +47,77 @@ export async function POST(req: Request) {
           description: JSON.stringify({ ...patientData, lastUpdatedBy: 'doctor' }) 
         }
       });
-      return new Response('OK', { status: 200 });
+      return new Response('Loop Blocked', { status: 200 });
     }
 
-    // --- DOCTOR MANUAL MOVE DETECTED ---
+    // --- DOCTOR MANUAL MOVE LOGIC STARTS HERE ---
 
-    // 2. CLEANUP OVERLAPS (Delete "Available" slots at the new location)
-    // We expand the window by 1 minute to ensure we catch the slot
-    const startSearch = new Date(new Date(event.start?.dateTime!).getTime() + 1000).toISOString();
-    const endSearch = new Date(new Date(event.end?.dateTime!).getTime() - 1000).toISOString();
+    // 1. CLEAR OVERLAPS (The "Box on Box" fix)
+    const start = event.start?.dateTime;
+    const end = event.end?.dateTime;
 
-    const overlaps = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      timeMin: startSearch,
-      timeMax: endSearch,
-      singleEvents: true,
-    });
+    if (start && end) {
+      const overlaps = await calendar.events.list({
+        calendarId: CALENDAR_ID,
+        timeMin: start,
+        timeMax: end,
+        singleEvents: true,
+      });
 
-    for (const item of (overlaps.data.items || [])) {
-      if (item.summary === 'Available' && item.id !== event.id) {
-        console.log("Deleting overlapping available slot:", item.id);
-        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: item.id! });
+      for (const item of (overlaps.data.items || [])) {
+        if (item.summary === 'Available' && item.id !== event.id) {
+          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: item.id! });
+        }
       }
     }
 
-    // 3. UPDATE DATA (Reset flag + Mark as System)
+    // 2. SEND NOTIFICATIONS (Do this BEFORE patching the event)
+    const timeStr = new Date(start!).toLocaleString('en-IN', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
+    });
     const reschedUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
+
+    // Gmail - Full Template
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
+      });
+      await transporter.sendMail({
+        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+        to: patientData.email,
+        subject: `Appointment Rescheduled by Dr. Dixit`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; color: #123025; border: 1px solid #eee;">
+            <h2>Namaste ${patientData.name},</h2>
+            <p>Dr. Dixit has adjusted your consultation time.</p>
+            <p style="font-size: 18px;"><b>New Time: ${timeStr}</b></p>
+            <div style="margin: 20px 0;">
+              <a href="${meetLink}" style="background: #123025; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px;">Join Video Call</a>
+            </div>
+            <p><b>Patient Details:</b><br/>
+               Symptoms: ${patientData.symptoms || 'Not provided'}<br/>
+               History: ${patientData.history || 'None'}</p>
+            <hr/>
+            <p style="font-size: 12px; color: #666;">You can reschedule this session one more time if needed: <a href="${reschedUrl}">${reschedUrl}</a></p>
+          </div>`
+      });
+    } catch (e) { console.error("Email Error:", e); }
+
+    // Twilio WhatsApp
+    try {
+      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+      await twilioClient.messages.create({
+        body: `Namaste ${patientData.name}, Dr. Dixit has rescheduled your session.\n\n📅 Time: ${timeStr}\n🔗 Join: ${meetLink}\n\nManage booking: ${reschedUrl}`,
+        from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+        to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
+      });
+    } catch (e) { console.error("WhatsApp Error:", e); }
+
+    // 3. UPDATE DATA (Reset flag + Mark as System so the next trigger is ignored)
     const updatedData = { 
       ...patientData, 
-      rescheduled: false, // Resetting so patient can move it once more
+      rescheduled: false, // Reset so patient gets their 1-time move back
       lastUpdatedBy: 'system' 
     };
 
@@ -89,45 +127,9 @@ export async function POST(req: Request) {
       requestBody: { description: JSON.stringify(updatedData) }
     });
 
-    // 4. NOTIFY PATIENT
-    const timeStr = new Date(event.start?.dateTime!).toLocaleString('en-IN', {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
-    });
-
-    // Email
-    try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
-      });
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: patientData.email,
-        subject: `Appointment Update - Dr. Dixit Ayurveda`,
-        html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
-                <h3 style="color: #123025;">Namaste ${patientData.name},</h3>
-                <p>Your consultation has been rescheduled by the doctor.</p>
-                <p><b>New Time:</b> ${timeStr}</p>
-                <p><a href="${meetLink}" style="background: #123025; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Join Video Call</a></p>
-                <hr />
-                <p style="font-size: 12px; color: #666;">Need to change this? Use your <a href="${reschedUrl}">Reschedule Link</a></p>
-               </div>`
-      });
-    } catch (err) { console.error("Email error:", err); }
-
-    // WhatsApp
-    try {
-      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-      await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, Dr. Dixit has rescheduled your session.\n\n📅 New Time: ${timeStr}\n🔗 Link: ${meetLink}\n\nYou can move this once here: ${reschedUrl}`,
-        from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-        to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
-      });
-    } catch (err) { console.error("Twilio error:", err); }
-
     return new Response('OK', { status: 200 });
   } catch (error) {
     console.error("Webhook Error:", error);
-    return new Response('OK', { status: 200 }); // Always 200 to Google
+    return new Response('Error', { status: 200 });
   }
 }
