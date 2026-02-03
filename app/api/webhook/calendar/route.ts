@@ -64,23 +64,8 @@ export async function POST(req: Request) {
         ? `${new Date(start).toLocaleString('en-IN', dateOptions)}, ${new Date(start).toLocaleTimeString('en-IN', timeOptions)} - ${new Date(end).toLocaleTimeString('en-IN', timeOptions)}`
         : "New Scheduled Time";
 
-      // 2. WHATSAPP NOTIFICATION
-      if (patientData.phone && process.env.TWILIO_SID) {
-        try {
-          const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-          const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
-          const formattedPhone = `whatsapp:+91${cleanPhone.slice(-10)}`;
 
-          await twilioClient.messages.create({
-            body: `Namaste ${patientName}, Dr. Dixit has updated your session time.\n\n📅 *New Time:* ${newTimeRange}\n🔗 *Meeting Link:* ${meetLink}`,
-            from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-            to: formattedPhone
-          });
-          console.log(`✅ WhatsApp Sent to ${formattedPhone}`);
-        } catch (e) { console.error("Twilio Error:", e); }
-      }
-
-      // 3. EMAIL NOTIFICATION
+       // 3. EMAIL NOTIFICATION
       if (patientData.email && process.env.EMAIL_PASS) {
         try {
           const transporter = nodemailer.createTransport({
@@ -105,7 +90,25 @@ export async function POST(req: Request) {
           });
           console.log(`✅ Email Sent to ${patientData.email}`);
         } catch (e) { console.error("Email Error:", e); }
+      }  
+
+      // 2. WHATSAPP NOTIFICATION
+      if (patientData.phone && process.env.TWILIO_SID) {
+        try {
+          const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+          const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
+          const formattedPhone = `whatsapp:+91${cleanPhone.slice(-10)}`;
+
+          await twilioClient.messages.create({
+            body: `Namaste ${patientName}, Dr. Dixit has updated your session time.\n\n📅 *New Time:* ${newTimeRange}\n🔗 *Meeting Link:* ${meetLink}`,
+            from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+            to: formattedPhone
+          });
+          console.log(`✅ WhatsApp Sent to ${formattedPhone}`);
+        } catch (e) { console.error("Twilio Error:", e); }
       }
+
+     
     }
 
     return new Response('OK', { status: 200 });
