@@ -38,12 +38,11 @@ function ConsultationContent() {
       setStep(3);
     }
   }, [searchParams]);
-    useEffect(() => {
+
+  useEffect(() => {
     async function fetchOldBookingDetails() {
       if (!rescheduleId) return;
       try {
-        // We call the GET endpoint but passing rescheduleId to get specific event details
-        // Note: You might need to ensure your GET /api/consultation handles an 'id' param
         const res = await fetch(`/api/consultation?bookingId=${rescheduleId}`);
         const data = await res.json();
         
@@ -93,14 +92,16 @@ function ConsultationContent() {
         body: JSON.stringify({ 
           eventId: selectedSlot.id, 
           patientData: formData, 
-          rescheduleId // Passing this triggers the "Reschedule Case" in your API
+          rescheduleId 
         })
       });
 
       const data = await res.json();
 
-      if (res.status === 400) {
-        alert(data.error); // Handles your "One-time reschedule only" rule
+      // 🚩 CRITICAL: Handle the 400 error (One-time reschedule limit)
+      if (!res.ok) {
+        alert(data.error || "Something went wrong. Please check your details.");
+        setLoading(false);
         return;
       }
 
@@ -110,21 +111,32 @@ function ConsultationContent() {
       } else {
         // Normal Flow: Open Razorpay
         const options = {
-          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
           amount: 20000,
+          currency: "INR",
+          name: "Dr. Dixit Ayurveda",
+          description: "Consultation Fee",
           order_id: data.orderId,
-          // ... (keep existing Razorpay config)
-          handler: () => setStep(3),
+          handler: function (response: any) {
+            setStep(3);
+          },
+          prefill: {
+            name: formData.name,
+            email: formData.email,
+            contact: formData.phone,
+          },
+          theme: { color: "#123025" },
         };
         const rzp = new (window as any).Razorpay(options);
         rzp.open();
       }
     } catch (e) {
-      alert("Something went wrong. Please try again.");
+      alert("Network error. Please check your connection.");
     } finally {
       setLoading(false);
     }
   };
+
   const steps = [
     {
       icon: <Clock size={22} className="text-saffron" />,
@@ -147,18 +159,14 @@ function ConsultationContent() {
     <>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" />
       <div className="min-h-screen bg-sand relative overflow-hidden selection:bg-saffron/30">
-        {/* --- DYNAMIC BACKGROUND ELEMENTS --- */}
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute top-[-5%] left-[-5%] w-[500px] h-[500px] bg-forest/10 rounded-full blur-[100px] animate-pulse"></div>
           <div className="absolute bottom-[10%] right-[-5%] w-[400px] h-[400px] bg-saffron/5 rounded-full blur-[80px]"></div>
           <Leaf className="absolute top-40 right-20 text-forest/10 rotate-[30deg]" size={100} />
         </div>
 
-        {/* --- 1. HERO SECTION --- */}
         <div className="bg-forest pt-32 md:pt-48 pb-32 md:pb-40 px-6 relative overflow-hidden">
           <div className="absolute inset-0 opacity-[0.05] mix-blend-overlay pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/natural-paper.png')]"></div>
-          <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/dust.png')]"></div>
-
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start gap-12 md:gap-16 relative z-10">
             <div className="md:w-1/2 text-left">
               <span className="text-saffron text-xs font-bold tracking-[0.5em] uppercase mb-6 block">
@@ -182,7 +190,6 @@ function ConsultationContent() {
                 )}
               </h1>
             </div>
-
             <div className="md:w-1/2 text-left md:border-l border-sand/10 md:pl-16">
               <h2 className="text-2xl md:text-3xl lg:text-4xl font-serif leading-snug mb-6 md:mb-8">
                 <span className="text-sand">Dr. Dixit </span>
@@ -193,21 +200,13 @@ function ConsultationContent() {
                   ? "Specialized Ayurvedic consultation providing personalized wellness and holistic healing expertise."
                   : "विशेष आयुर्वेदिक परामर्श जो व्यक्तिगत कल्याण और समग्र उपचार विशेषज्ञता प्रदान करता है।"}
               </p>
-              <div className="flex gap-4 items-center">
-                <div className="w-16 h-[1px] bg-saffron"></div>
-                <p className="text-saffron text-[10px] font-bold tracking-[0.3em] uppercase">
-                  {lang === 'en' ? 'Select booking timing below' : 'नीचे बुकिंग का समय चुनें'}
-                </p>
-              </div>
             </div>
           </div>
         </div>
 
-        {/* --- 2. BOOKING CONSOLE --- */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 -mt-20 md:-mt-24 mb-24 relative z-30">
           <div className="relative flex flex-col lg:flex-row min-h-[600px] md:min-h-[750px] rounded-2xl md:rounded-r-[48px] overflow-hidden shadow-[0_60px_100px_-20px_rgba(18,48,37,0.4)] border border-forest/20 group">
 
-            {/* Left Column: Step Guide */}
             <div className="lg:w-[35%] bg-forest p-8 md:p-14 text-sand relative overflow-hidden">
               <div className="absolute left-0 top-0 bottom-0 w-2.5 bg-saffron" />
               <div className="relative z-10 h-full flex flex-col">
@@ -215,7 +214,6 @@ function ConsultationContent() {
                   <div className="w-2 h-2 bg-saffron rounded-full animate-ping"></div>
                   <ShieldCheck size={16} /> {lang === 'en' ? 'Booking Steps' : 'बुकिंग चरण'}
                 </h4>
-
                 <div className="space-y-8 md:space-y-12">
                   {steps.map((stepItem, idx) => (
                     <div key={idx} className={`flex gap-4 md:gap-6 items-start group/item transition-opacity ${step > idx + 1 ? 'opacity-30' : 'opacity-100'}`}>
@@ -229,44 +227,27 @@ function ConsultationContent() {
                     </div>
                   ))}
                 </div>
-
-                <div className="mt-12 lg:mt-auto pt-8 border-t border-white/5">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex items-center gap-3 text-xs text-sand/60">
-                      <CheckCircle2 size={14} className="text-saffron" />
-                      {lang === 'en' ? 'Secure Razorpay Checkout' : 'सुरक्षित रेज़रपे चेकआउट'}
-                    </div>
-                    <p className="text-[10px] text-sand/30 italic leading-relaxed">
-                      {lang === 'en' ? 'Confirmation sent instantly to Email/SMS/WhatsApp.' : 'ईमेल/व्हाट्सएप/मेसज पर तुरंत पुष्टि भेजी गई।'}
-                    </p>
-                  </div>
-                </div>
               </div>
             </div>
 
-            {/* Right Column: Interactive Selection */}
             <div className="flex-1 bg-sand/60 backdrop-blur-2xl relative min-h-[500px] md:h-auto overflow-y-auto">
-              <div className="absolute inset-0 opacity-[0.04] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/graphy-dark.png')]"></div>
-
               <div className="relative z-10 p-6 md:p-12 h-full flex flex-col justify-center">
 
-                {/* STEP 1: DATE & TIME */}
                 {step === 1 && (
                   <div className="space-y-8 animate-in fade-in duration-500">
                     <div className="space-y-3">
                       <label className="text-forest font-serif text-xl flex items-center gap-2"><CalIcon size={20} className="text-saffron" /> {lang === 'en' ? '1. Choose Date' : '१. तारीख चुनें'}</label>
                       <input type="date" min={new Date().toISOString().split('T')[0]} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-4 rounded-xl border border-forest/10 bg-white/50 outline-none" />
                     </div>
-
                     <div className="space-y-3">
                       <label className="text-forest font-serif text-xl flex items-center gap-2"><Clock size={20} className="text-saffron" /> {lang === 'en' ? '2. Available Slots' : '२. उपलब्ध समय'}</label>
-                      {loading ? <p className="animate-pulse text-forest/40">Fetching Dr. Dixit's availability...</p> :
+                      {loading ? <p className="animate-pulse text-forest/40">Fetching availability...</p> :
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {slots.length > 0 ? slots.map(s => (
                             <button key={s.id} onClick={() => setSelectedSlot(s)} className={`p-4 rounded-xl border font-bold transition-all ${selectedSlot?.id === s.id ? 'bg-forest text-saffron border-forest' : 'bg-white/40 border-forest/10 hover:border-saffron'}`}>
                               {new Date(s.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </button>
-                          )) : <p className="col-span-full text-forest/40 italic">No slots available for this date.</p>}
+                          )) : <p className="col-span-full text-forest/40 italic">No slots available.</p>}
                         </div>
                       }
                     </div>
@@ -276,58 +257,39 @@ function ConsultationContent() {
                   </div>
                 )}
 
-                {/* STEP 2: FORM */}
                 {step === 2 && (
                   <div className="space-y-4 animate-in slide-in-from-right duration-500">
                     <h3 className="text-2xl font-serif text-forest mb-4">{lang === 'en' ? 'Patient Details' : 'रोगी का विवरण'}</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Name */}
                       <input placeholder="Full Name" className="p-4 rounded-xl border bg-white/50 outline-none focus:border-saffron" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                      
-                      {/* Email with validation styling */}
-                      <div className="relative">
-                        <input placeholder="Email Address" type="email" className={`w-full p-4 rounded-xl border bg-white/50 outline-none transition-colors ${formData.email && !isEmailValid(formData.email) ? 'border-red-400' : 'focus:border-saffron'}`} value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
-                        {formData.email && !isEmailValid(formData.email) && <AlertCircle className="absolute right-4 top-4 text-red-400" size={18}/>}
-                      </div>
-
-                      {/* Phone with Country Code UI */}
+                      <input placeholder="Email Address" type="email" className="p-4 rounded-xl border bg-white/50 outline-none focus:border-saffron" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
                       <div className="relative flex items-center">
                         <span className="absolute left-4 text-forest/50 font-bold">+91</span>
-                        <input placeholder="Phone Number" type="tel" maxLength={10} className={`w-full p-4 pl-14 rounded-xl border bg-white/50 outline-none transition-colors ${formData.phone && !isPhoneValid(formData.phone) ? 'border-red-400' : 'focus:border-saffron'}`} value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '') })} />
+                        <input placeholder="Phone Number" className="w-full p-4 pl-14 rounded-xl border bg-white/50 outline-none" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '') })} />
                       </div>
-
-                      {/* Age - Integer only */}
-                      <input placeholder="Age" type="text" inputMode="numeric" className={`p-4 rounded-xl border bg-white/50 outline-none transition-colors ${formData.age && !isAgeValid(formData.age) ? 'border-red-400' : 'focus:border-saffron'}`} value={formData.age} onChange={e => setFormData({ ...formData, age: e.target.value.replace(/\D/g, '') })} />
+                      <input placeholder="Age" className="p-4 rounded-xl border bg-white/50 outline-none" value={formData.age} onChange={e => setFormData({ ...formData, age: e.target.value.replace(/\D/g, '') })} />
                     </div>
-
-                    <textarea placeholder="Medical History (Optional)" className="w-full p-4 rounded-xl border bg-white/50 h-20 outline-none focus:border-saffron" value={formData.history} onChange={e => setFormData({ ...formData, history: e.target.value })} />
-                    <textarea placeholder="Current Symptoms / Reason for Consultation" className="w-full p-4 rounded-xl border bg-white/50 h-20 outline-none focus:border-saffron" value={formData.symptoms} onChange={e => setFormData({ ...formData, symptoms: e.target.value })} />
-                    
+                    <textarea placeholder="Medical History (Optional)" className="w-full p-4 rounded-xl border bg-white/50 h-20 outline-none" value={formData.history} onChange={e => setFormData({ ...formData, history: e.target.value })} />
+                    <textarea placeholder="Current Symptoms" className="w-full p-4 rounded-xl border bg-white/50 h-20 outline-none" value={formData.symptoms} onChange={e => setFormData({ ...formData, symptoms: e.target.value })} />
                     <div className="flex gap-4 pt-4">
                       <button onClick={() => setStep(1)} className="flex-1 py-4 border border-forest rounded-xl font-bold uppercase hover:bg-forest/5 transition-colors">{lang === 'en' ? 'Back' : 'पीछे'}</button>
-                      <button disabled={!isFormValid || loading} onClick={handleProceed} className="flex-[2] py-4 bg-saffron text-forest rounded-xl font-bold uppercase shadow-lg disabled:opacity-30 disabled:grayscale transition-all hover:scale-[1.02] active:scale-95">
+                      <button disabled={!isFormValid || loading} onClick={handleProceed} className="flex-[2] py-4 bg-saffron text-forest rounded-xl font-bold uppercase shadow-lg disabled:opacity-30 transition-all hover:scale-[1.02]">
                         {loading ? 'Processing...' : (rescheduleId ? (lang === 'en' ? 'Confirm Move' : 'पुष्टि करें') : (lang === 'en' ? 'Pay & Book' : 'भुगतान और बुकिंग'))}
                       </button>
                     </div>
-                    {!isFormValid && formData.symptoms && (
-                       <p className="text-[10px] text-center text-red-500/70 italic">Please fill all required fields with valid information.</p>
-                    )}
                   </div>
                 )}
 
-                {/* STEP 3: SUCCESS */}
                 {step === 3 && (
                   <div className="text-center space-y-6 animate-in zoom-in duration-500">
                     <div className="w-24 h-24 bg-forest/10 rounded-full flex items-center justify-center mx-auto">
                       <CheckCircle2 size={60} className="text-forest" />
                     </div>
                     <h2 className="text-4xl font-serif text-forest">{lang === 'en' ? 'Success!' : 'सफल!'}</h2>
-                    <p className="text-forest/60 max-w-sm mx-auto leading-relaxed">
-                      {lang === 'en' 
-                        ? 'Your consultation has been confirmed. Meeting link sent to your Email & WhatsApp.' 
-                        : 'आपका परामर्श सुनिश्चित हो गया है। मीटिंग लिंक आपके ईमेल और व्हाट्सएप पर भेज दिया गया है।'}
+                    <p className="text-forest/60 max-w-sm mx-auto">
+                      {lang === 'en' ? 'Consultation confirmed. Link sent to Email & WhatsApp.' : 'परामर्श सुनिश्चित हो गया है। लिंक भेज दिया गया है।'}
                     </p>
-                    <button onClick={() => window.location.href = '/'} className="px-8 py-3 border border-forest/20 rounded-full text-forest text-sm font-bold uppercase hover:bg-forest hover:text-sand transition-all">
+                    <button onClick={() => window.location.href = '/'} className="px-8 py-3 border border-forest/20 rounded-full text-forest text-sm font-bold hover:bg-forest hover:text-sand transition-all">
                        {lang === 'en' ? 'Back to Home' : 'मुख्य पृष्ठ पर जाएँ'}
                     </button>
                   </div>
@@ -343,13 +305,7 @@ function ConsultationContent() {
 
 export default function ConsultationPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-sand flex items-center justify-center">
-        <div className="animate-pulse text-forest font-serif text-xl">
-          Loading Ayurvedic Console...
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-sand flex items-center justify-center">Loading...</div>}>
       <ConsultationContent />
     </Suspense>
   );
