@@ -38,6 +38,32 @@ function ConsultationContent() {
       setStep(3);
     }
   }, [searchParams]);
+    useEffect(() => {
+    async function fetchOldBookingDetails() {
+      if (!rescheduleId) return;
+      try {
+        // We call the GET endpoint but passing rescheduleId to get specific event details
+        // Note: You might need to ensure your GET /api/consultation handles an 'id' param
+        const res = await fetch(`/api/consultation?bookingId=${rescheduleId}`);
+        const data = await res.json();
+        
+        if (data.details) {
+          const prev = data.details;
+          setFormData({
+            name: prev.name || '',
+            email: prev.email || '',
+            phone: prev.phone || '',
+            age: prev.age || '',
+            history: prev.history || '',
+            symptoms: prev.symptoms || ''
+          });
+        }
+      } catch (e) {
+        console.error("Failed to fetch previous booking data:", e);
+      }
+    }
+    fetchOldBookingDetails();
+  }, [rescheduleId]);
 
   useEffect(() => {
     async function fetchSlots() {
@@ -57,50 +83,48 @@ function ConsultationContent() {
 
   const handleProceed = async () => {
     if (step === 1) return setStep(2);
-    if (!isFormValid) return; // Guard clause
+    if (!isFormValid) return;
     setLoading(true);
 
     try {
       const res = await fetch('/api/consultation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: selectedSlot.id, patientData: formData, rescheduleId })
+        body: JSON.stringify({ 
+          eventId: selectedSlot.id, 
+          patientData: formData, 
+          rescheduleId // Passing this triggers the "Reschedule Case" in your API
+        })
       });
 
       const data = await res.json();
 
+      if (res.status === 400) {
+        alert(data.error); // Handles your "One-time reschedule only" rule
+        return;
+      }
+
       if (rescheduleId) {
+        // Successful Reschedule skips payment
         setStep(3);
       } else {
+        // Normal Flow: Open Razorpay
         const options = {
           key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
           amount: 20000,
-          currency: "INR",
-          name: "Dr. Dixit Ayurveda",
-          description: "Consultation Fee",
           order_id: data.orderId,
-          handler: function (response: any) {
-            setStep(3);
-          },
-          prefill: {
-            name: formData.name,
-            email: formData.email,
-            contact: `+91${formData.phone}`,
-          },
-          theme: { color: "#123025" },
+          // ... (keep existing Razorpay config)
+          handler: () => setStep(3),
         };
-
         const rzp = new (window as any).Razorpay(options);
         rzp.open();
       }
     } catch (e) {
-      console.error("FULL ERROR DETAILS:", e);
-      alert("Error: " + e);
+      alert("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
-
   const steps = [
     {
       icon: <Clock size={22} className="text-saffron" />,

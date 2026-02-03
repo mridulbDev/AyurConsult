@@ -15,6 +15,17 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
+    // Inside your GET function in route.ts
+const bookingId = searchParams.get('bookingId');
+
+if (bookingId) {
+  const event = await calendar.events.get({
+    calendarId: CALENDAR_ID,
+    eventId: bookingId,
+  });
+  const details = JSON.parse(event.data.description || '{}');
+  return Response.json({ details });
+}
     if (!date) return Response.json({ slots: [] });
 
     const response = await calendar.events.list({
