@@ -1,8 +1,10 @@
 import { google } from 'googleapis';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
 
+
+const redis = Redis.fromEnv();
 export async function POST(req: Request) {
   try {
     const auth = new google.auth.JWT({
@@ -18,7 +20,7 @@ export async function POST(req: Request) {
     if (resourceState === 'sync') return new Response('OK', { status: 200 });
 
     // 1. Get the last stored token
-    const syncToken = await kv.get<string>('google_calendar_sync_token');
+    const syncToken = await redis.get<string>('google_calendar_sync_token');
 
     // 2. Fetch changes
     const response = await calendar.events.list({
@@ -28,7 +30,7 @@ export async function POST(req: Request) {
 
     // 3. Immediately store the NEW token for the next trigger
     if (response.data.nextSyncToken) {
-      await kv.set('google_calendar_sync_token', response.data.nextSyncToken);
+      await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
     }
 
     const changedEvents = response.data.items || [];
@@ -93,6 +95,8 @@ export async function POST(req: Request) {
       } catch (e) { console.error("Email failed"); }
 
       // WhatsApp
+
+      
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
@@ -122,7 +126,7 @@ export async function POST(req: Request) {
     return new Response('OK', { status: 200 });
   } catch (error: any) {
     if (error.code === 410) {
-      await kv.del('google_calendar_sync_token');
+      await redis.del('google_calendar_sync_token');
       return new Response('Sync Reset', { status: 200 });
     }
     console.error("Critical Webhook Error:", error);

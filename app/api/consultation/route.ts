@@ -1,7 +1,9 @@
 import { google } from 'googleapis';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
+
+const redis = Redis.fromEnv();
 
 const auth = new google.auth.JWT({
   email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
@@ -42,7 +44,7 @@ export async function GET(req: Request) {
       const initialToken = response.data.nextSyncToken;
       
       if (initialToken) {
-        await kv.set('google_calendar_sync_token', initialToken);
+        await redis.set('google_calendar_sync_token', initialToken);
       }
 
       return Response.json({ 
