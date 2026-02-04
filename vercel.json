@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/consultation?setup=true",
+      "path": "/api/webhook/calendar/setup",
       "schedule": "0 0 */5 * *"
     }
   ]

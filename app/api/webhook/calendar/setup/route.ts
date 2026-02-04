@@ -2,46 +2,48 @@ import { google } from 'googleapis';
 import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
-const auth = new google.auth.JWT({
-  email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
-  key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  scopes: ['https://www.googleapis.com/auth/calendar'],
-});
-const calendar = google.calendar({ version: 'v3', auth });
 
 export async function GET(req: Request) {
-  // Simple security check: Only you can trigger this
-  const { searchParams } = new URL(req.url);
-  if (searchParams.get('secret') !== process.env.ADMIN_SECRET) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
-    const channelId = `channel-ayur-${Date.now()}`;
-    
+    // 1. Auth Setup
+    const auth = new google.auth.JWT({
+      email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
+      key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      scopes: ['https://www.googleapis.com/auth/calendar'],
+    });
+    const calendar = google.calendar({ version: 'v3', auth });
+    const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
+
+    // 2. Generate a unique channel ID
+    const channelId = `ayur-sync-${Date.now()}`;
+
+    // 3. Register the Webhook with Google
     const watchRes = await calendar.events.watch({
-      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      calendarId: CALENDAR_ID,
       requestBody: {
         id: channelId,
         type: 'web_hook',
         address: `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhook/calendar`,
-        // Webhooks expire. Set a token to track it.
-        token: 'doctor-dixit-sync', 
       },
     });
 
-    // Store the initial Sync Token so the webhook knows where to start
-    const listRes = await calendar.events.list({ calendarId: process.env.GOOGLE_CALENDAR_ID });
-    if (listRes.data.nextSyncToken) {
-      await redis.set('google_calendar_sync_token', listRes.data.nextSyncToken);
+    // 4. Update the Sync Token and Resource ID in Redis
+    // Resource ID is needed if you ever want to manually stop the watch
+    const response = await calendar.events.list({ calendarId: CALENDAR_ID });
+    const initialToken = response.data.nextSyncToken;
+
+    if (initialToken) {
+      await redis.set('google_calendar_sync_token', initialToken);
+      await redis.set('google_calendar_resource_id', watchRes.data.resourceId);
     }
 
     return Response.json({ 
       success: true, 
-      message: "Webhook registered", 
-      details: watchRes.data 
+      message: "Sync Channel Renewed", 
+      expires: watchRes.data.expiration 
     });
   } catch (error: any) {
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error("Cron Setup Error:", error.message);
+    return Response.json({ success: false, error: error.message }, { status: 500 });
   }
 }
