@@ -21,13 +21,7 @@ export async function GET(req: Request) {
     const bookingId = searchParams.get('bookingId');
     const isSetup = searchParams.get('setup');
 
-    // 🚩 ACTIVATE WEBHOOK (Trigger this by visiting /api/consultation?setup=true)
-    
-    
-    
-
     if (isSetup === 'true') {
-      // 1. Activate Webhook Watch
       const watchRes = await calendar.events.watch({
         calendarId: CALENDAR_ID,
         requestBody: {
@@ -37,21 +31,11 @@ export async function GET(req: Request) {
         },
       });
 
-      // 2. Initial Full Sync to get the FIRST Token
-      const response = await calendar.events.list({
-        calendarId: CALENDAR_ID,
-      });
+      const response = await calendar.events.list({ calendarId: CALENDAR_ID });
       const initialToken = response.data.nextSyncToken;
-      
-      if (initialToken) {
-        await redis.set('google_calendar_sync_token', initialToken);
-      }
+      if (initialToken) await redis.set('google_calendar_sync_token', initialToken);
 
-      return Response.json({ 
-        success: true, 
-        message: "Webhook and Token Initialized", 
-        tokenSet: !!initialToken 
-      });
+      return Response.json({ success: true, message: "Webhook and Token Initialized" });
     }
     
     if (bookingId) {
@@ -79,9 +63,8 @@ export async function GET(req: Request) {
       } else if (ev.summary?.startsWith('PENDING')) {
         try {
           const data = JSON.parse(ev.description || '{}');
-          const elapsed = now - (data.pendingAt || 0);
-          if (elapsed > 600000) {
-            calendar.events.patch({
+          if (now - (data.pendingAt || 0) > 600000) {
+            await calendar.events.patch({
               calendarId: CALENDAR_ID,
               eventId: ev.id!,
               requestBody: { summary: 'Available', description: '', location: '' }
@@ -100,8 +83,7 @@ export async function GET(req: Request) {
 
     const processedSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
     return Response.json({ slots: processedSlots });
-  } catch (error:any) {
-    console.error("DEBUG ERROR:", error.message); // This will show in Vercel Logs
+  } catch (error: any) {
     return Response.json({ error: error.message, slots: [] }, { status: 500 });
   }
 }
@@ -115,14 +97,13 @@ export async function POST(req: Request) {
     if (rescheduleId) {
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
       
-      if (oldEvent.data.summary === 'Available' || !oldEvent.data.description) {
-        return Response.json({ 
-          error: "This reschedule link is no longer valid. The appointment has already been moved." 
-        }, { status: 400 });
+      if (!oldEvent.data.description || oldEvent.data.summary === 'Available') {
+        return Response.json({ error: "Invalid reschedule request." }, { status: 400 });
       }
 
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
+      // logic: Patients only get one shot
       if (oldData.rescheduled === true) {
         return Response.json({ error: "This appointment has already been rescheduled once. Further changes are not permitted." }, { status: 400 });
       }
@@ -130,12 +111,14 @@ export async function POST(req: Request) {
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
 
+      // Mark old event as available
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: rescheduleId,
         requestBody: { summary: 'Available', description: '', location: '' }
       });
 
+      // Clear overlaps at new slot
       const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: start!,
@@ -146,7 +129,14 @@ export async function POST(req: Request) {
         if (ev.id !== eventId && ev.summary === 'Available') await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
       }
 
-      const newDesc = JSON.stringify({ ...oldData, ...patientData, rescheduled: true, lastUpdatedBy: 'user',lastNotifiedTime: start });
+      const newDesc = JSON.stringify({ 
+        ...oldData, 
+        ...patientData, 
+        rescheduled: true, 
+        lastUpdatedBy: 'system_webhook', // Prevents calendar webhook from firing again
+        lastNotifiedTime: start 
+      });
+      
       const reschedUrl = `${baseUrl}/consultation?reschedule=${eventId}`;
 
       await calendar.events.patch({
@@ -161,12 +151,12 @@ export async function POST(req: Request) {
 
       const timeStr = new Date(start!).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
 
+      // Immediate Notification for Patient Reschedule
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const drPhone = process.env.DOCTOR_PHONE!;
         const patientPhone = `+91${patientData.phone.toString().replace(/\D/g, '').slice(-10)}`;
         
-
         if (process.env.EMAIL_PASS) {
           const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
           await transporter.sendMail({
@@ -177,27 +167,28 @@ export async function POST(req: Request) {
               <h2>Reschedule Successful</h2>
               <p>Namaste ${patientData.name}, your appointment is moved to: <b>${timeStr}</b></p>
               <p><a href="${meetLink}" style="background: #E8A856; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Join Call</a></p>
-              <p style="font-size: 12px; color: #666;">If you need to change this again, please contact the doctor. You can view your booking here: <a href="${reschedUrl}">${reschedUrl}</a></p>
+              <p style="font-size: 12px; color: #666;">View booking: <a href="${reschedUrl}">${reschedUrl}</a></p>
             </div>`
           });
         }
 
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, reschedule successful!\n\n📅 *New Time:* ${timeStr}\n🔗 *Link:* ${meetLink}\nView/Reschedule: ${reschedUrl}`,
+          body: `Namaste ${patientData.name}, reschedule successful!\n📅 Time: ${timeStr}\n🔗 Link: ${meetLink}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${patientPhone}`
         });
 
         await twilioClient.messages.create({
-          body: `🔄 *Reschedule Alert*\n\n👤 Patient: ${patientData.name}\n📅 New Time: ${timeStr}\n🔗 Link: ${meetLink}`,
+          body: `🔄 *Reschedule Alert*\n👤 Patient: ${patientData.name}\n📅 New Time: ${timeStr}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${drPhone.startsWith('+') ? drPhone : '+91' + drPhone}`
         });
-      } catch (e) { console.error("Notification Error", e); }
+      } catch (e) { console.error(e); }
 
       return Response.json({ success: true });
     }
 
+    // Initial Booking Process
     const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'system' });
     await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
 
