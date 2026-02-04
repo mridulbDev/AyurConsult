@@ -3,8 +3,8 @@ import { Redis } from '@upstash/redis';
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
 
-
 const redis = Redis.fromEnv();
+
 export async function POST(req: Request) {
   try {
     const auth = new google.auth.JWT({
@@ -19,16 +19,13 @@ export async function POST(req: Request) {
     const resourceState = req.headers.get('x-goog-resource-state');
     if (resourceState === 'sync') return new Response('OK', { status: 200 });
 
-    // 1. Get the last stored token
     const syncToken = await redis.get<string>('google_calendar_sync_token');
 
-    // 2. Fetch changes
     const response = await calendar.events.list({
       calendarId: CALENDAR_ID,
       syncToken: syncToken || undefined,
     });
 
-    // 3. Immediately store the NEW token for the next trigger
     if (response.data.nextSyncToken) {
       await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
     }
@@ -36,6 +33,7 @@ export async function POST(req: Request) {
     const changedEvents = response.data.items || [];
 
     for (const event of changedEvents) {
+      // Logic: Only process events that are CONFIRMED and have patient data
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let patientData;
@@ -44,92 +42,76 @@ export async function POST(req: Request) {
       } catch (e) { continue; }
 
       const newStart = event.start?.dateTime;
-      if (!newStart) continue;
+      if (!newStart || patientData.lastNotifiedTime === newStart) continue;
 
-      if (patientData.lastNotifiedTime === newStart) continue;
-
-      // 4. SLOT REPLACEMENT: Remove "Available" slot at the new location
+      // --- FIXED OVERLAP CLEANUP ---
       try {
         const checkSlots = await calendar.events.list({
           calendarId: CALENDAR_ID,
-          timeMin: newStart,
-          timeMax: event.end?.dateTime!,
+          timeMin: new Date(new Date(newStart).getTime() - 1000).toISOString(),
+          timeMax: new Date(new Date(event.end?.dateTime!).getTime() + 1000).toISOString(),
           singleEvents: true,
         });
 
-        const ghostSlot = checkSlots.data.items?.find(e => 
-          e.summary === 'Available' && e.start?.dateTime === newStart && e.id !== event.id
-        );
-
-        if (ghostSlot) {
-          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id! });
+        // Delete ANY 'Available' slot in this new window
+        const overlaps = checkSlots.data.items?.filter(e => e.summary === 'Available' && e.id !== event.id);
+        if (overlaps) {
+          for (const slot of overlaps) {
+            await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
+          }
         }
-      } catch (err) { console.log("Slot cleanup skipped or failed"); }
+      } catch (err) { console.log("Cleanup failed"); }
 
-      // 5. CONSTRUCT LINKS
       const timeStr = new Date(newStart).toLocaleString('en-IN', {
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
       });
       
-      // Dynamic Reschedule Link
       const rescheduleUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
 
-      // 6. NOTIFICATIONS
-      // Email
+      // --- FIXED EMAIL TRANSPORT ---
       try {
         const transporter = nodemailer.createTransport({
-          service: 'gmail',
+          host: "smtp.gmail.com",
+          port: 465,
+          secure: true,
           auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
         });
         await transporter.sendMail({
           from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
           to: patientData.email,
           subject: `Appointment Updated - Dr. Dixit Ayurveda`,
-          html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
-              <h2>Namaste ${patientData.name},</h2>
-              <p>Your session has been moved to: <b>${timeStr}</b></p>
-              <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="display:inline-block; background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
-              <p style="margin-top:20px; font-size:12px;">Need to change this? <a href="${rescheduleUrl}">Reschedule here</a></p>
-            </div>`
+          html: `<p>Namaste ${patientData.name}, your session is moved to: <b>${timeStr}</b></p>
+                 <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a></p>
+                 <p>Reschedule: ${rescheduleUrl}</p>`
         });
-      } catch (e) { console.error("Email failed"); }
+      } catch (e) { console.error("Email fail"); }
 
-      // WhatsApp
-
-      
+      // --- FIXED WHATSAPP (Added Prefix) ---
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
-      const formattedPatientPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
+        const formattedPatientPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
+        
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, your session is moved to ${timeStr}.\n\nMeeting Link: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${rescheduleUrl}`,
+          body: `Namaste ${patientData.name}, your session moved to ${timeStr}.\nMeet: ${process.env.NEXT_PUBLIC_MEET_LINK}\nReschedule: ${rescheduleUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: formattedPatientPhone
+          to: `whatsapp:${formattedPatientPhone}` // Fixed prefix
         });
-      } catch (e) { console.error("WhatsApp failed"); }
+      } catch (e) { console.error("WhatsApp fail"); }
 
-      // 7. UPDATE EVENT: Save state & RESET reschedule flag so patient can move it once more
+      // Save state
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
         requestBody: { 
-          description: JSON.stringify({ 
-            ...patientData, 
-            lastNotifiedTime: newStart, 
-            rescheduled: false,
-            lastUpdatedBy: 'doctor' // Resetting this allows the patient to reschedule again after a Dr move
-          }) 
+          description: JSON.stringify({ ...patientData, lastNotifiedTime: newStart, rescheduled: false }) 
         }
       });
     }
 
     return new Response('OK', { status: 200 });
   } catch (error: any) {
-    if (error.code === 410) {
-      await redis.del('google_calendar_sync_token');
-      return new Response('Sync Reset', { status: 200 });
-    }
-    console.error("Critical Webhook Error:", error);
-    return new Response('Internal Error', { status: 500 });
+    console.error("Webhook Error:", error);
+    return new Response('Error', { status: 500 });
   }
 }

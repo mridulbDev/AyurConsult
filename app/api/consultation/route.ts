@@ -33,7 +33,7 @@ export async function GET(req: Request) {
         requestBody: {
           id: `channel-${Date.now()}`,
           type: 'web_hook',
-          address: `${process.env.NEXT_PUBLIC_BASE_URL}/api/calendar`,
+          address: `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhook/calendar`,
         },
       });
 
