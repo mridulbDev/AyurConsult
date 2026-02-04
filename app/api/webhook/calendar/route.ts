@@ -88,7 +88,7 @@ export async function POST(req: Request) {
         subject: `Appointment Updated - ${patientData.name}`,
         html: `<div style="font-family: sans-serif; padding:20px; border:1px solid #eee;">
                 <h3>Appointment Rescheduled</h3>
-                <p>Namaste ${patientData.name}, your session has been moved to: <b>${timeStr}</b></p>
+                <p>Namaste ${patientData.name}, your session with Dr.Dixit is moved to: <b>${timeStr}</b></p>
                 <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="color:#123025; font-weight:bold;">Join Video Call</a></p>
                 <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
                 <p style="font-size:12px; color:#666;">Need to change this? You can <a href="${reschedUrl}">reschedule here</a>.</p>
@@ -100,7 +100,7 @@ export async function POST(req: Request) {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, your session moved to ${timeStr}.\n\nMeeting: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${reschedUrl}`,
+          body: `Namaste ${patientData.name}, your session with Dr.Dixit is moved to ${timeStr}.\n\nMeeting: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${reschedUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${cleanPhone.startsWith('91') ? '+' + cleanPhone : '+91' + cleanPhone}`
         });

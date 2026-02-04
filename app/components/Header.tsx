@@ -30,9 +30,9 @@ export default function Header() {
         <Link href="/" className="group flex flex-col">
   <span className="text-xl md:text-2xl font-serif font-bold text-sand leading-none tracking-tight">
     {lang === 'en' ? (
-      <>PROF. MAHESH <span className="text-saffron">DIXIT</span></>
+      <>DR. DIXIT <span className="text-saffron">AYURVEDA</span></>
     ) : (
-      <>प्रो. महेश <span className="text-saffron">दीक्षित</span></>
+      <>डॉ. दीक्षित <span className="text-saffron">आयुर्वेद</span></>
     )}
   </span>
   <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-sand/60 mt-1 hidden md:block">

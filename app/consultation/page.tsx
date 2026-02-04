@@ -116,6 +116,7 @@ function ConsultationContent() {
           currency: "INR",
           name: "Dr. Dixit Ayurveda",
           description: "Consultation Fee",
+      
           order_id: data.orderId,
           handler: function (response: any) {
             setStep(3);
@@ -177,15 +178,15 @@ function ConsultationContent() {
                   <>
                     <span className="text-sand">Start Your </span>
                     <span className="text-saffron">Journey</span> <br />
-                    <span className="text-sand">of Natural </span>
-                    <span className="text-saffron">Healing</span>
+                    <span className="text-saffron">of Natural </span>
+                    <span className="text-sand">Healing</span>
                   </>
                 ) : (
                   <>
                     <span className="text-sand">प्राकृतिक </span>
                     <span className="text-saffron">चिकित्सा</span> <br />
-                    <span className="text-sand">की </span>
-                    <span className="text-saffron">शुरुआत</span>
+                    <span className="text-saffron">की </span>
+                    <span className="text-sand">शुरुआत</span>
                   </>
                 )}
               </h1>

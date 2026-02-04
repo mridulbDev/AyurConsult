@@ -32,7 +32,7 @@ export default function HomePage() {
     heroBadge: lang === 'en' ? "25+ Years of Excellence" : "25+ वर्षों का उत्कृष्ट अनुभव",
     heroTitle: lang === 'en' ? "Expert Ayurvedic" : "विशेषज्ञ आयुर्वेदिक",
     heroTitleSpan: lang === 'en' ? "Surgical Care" : "शल्य चिकित्सा",
-    heroDesc: lang === 'en' ? "Consult with Prof. Mahesh Dixit, a renowned surgeon and educator blending classical Shalya Tantra with modern medical precision." : "प्रो. महेश दीक्षित से परामर्श लें, जो एक प्रसिद्ध सर्जन और शिक्षक हैं, जो शास्त्रीय शल्य तंत्र को आधुनिक चिकित्सा सटीकता के साथ जोड़ते हैं।",
+    heroDesc: lang === 'en' ? "Consult with Dr. Dixit Ayurveda, a renowned surgeon and educator blending classical Shalya Tantra with modern medical precision." : "डॉ. दीक्षित आयुर्वेद से परामर्श लें, जो एक प्रसिद्ध सर्जन और शिक्षक हैं, जो शास्त्रीय शल्य तंत्र को आधुनिक चिकित्सा सटीकता के साथ जोड़ते हैं।",
     heroCta: lang === 'en' ? "Book Appointment" : "अपॉइंटमेंट बुक करें",
     blogs: lang === 'en' ? "Read Blogs" : "ब्लॉग पढ़ें",
     meetDr: lang === 'en' ? "Meet Your Doctor — Prof. Mahesh Dixit" : "अपने डॉक्टर से मिलें — प्रो. महेश दीक्षित",

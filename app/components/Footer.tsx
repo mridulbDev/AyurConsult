@@ -7,7 +7,7 @@ export default function Footer() {
   const { lang } = useLanguage();
 
   const t = {
-    drName: lang === 'en' ? 'Prof. Mahesh Dixit' : 'प्रो. महेश दीक्षित', 
+    drName: lang === 'en' ? 'Dr. Mahesh Dixit' : 'डॉ. महेश दीक्षित', 
     legal: lang === 'en' ? 'Legal & Support' : 'कानूनी और सहायता',
     privacy: lang === 'en' ? 'Privacy Policy' : 'गोपनीयता नीति',
     disclaimer: lang === 'en' ? 'Disclaimer' : 'अस्वीकरण',
