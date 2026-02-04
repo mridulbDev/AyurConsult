@@ -20,7 +20,6 @@ export async function POST(req: Request) {
     if (resourceState === 'sync') return new Response('OK', { status: 200 });
 
     const syncToken = await redis.get<string>('google_calendar_sync_token');
-
     const response = await calendar.events.list({
       calendarId: CALENDAR_ID,
       syncToken: syncToken || undefined,
@@ -33,7 +32,7 @@ export async function POST(req: Request) {
     const changedEvents = response.data.items || [];
 
     for (const event of changedEvents) {
-      // Logic: Only process events that are CONFIRMED and have patient data
+      // 1. SKIP if not a confirmed booking
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let patientData;
@@ -42,71 +41,81 @@ export async function POST(req: Request) {
       } catch (e) { continue; }
 
       const newStart = event.start?.dateTime;
-      if (!newStart || patientData.lastNotifiedTime === newStart) continue;
+      if (!newStart) continue;
 
-      // --- FIXED OVERLAP CLEANUP ---
+      // 2. CRITICAL: STOP THE LOOP
+      // If our system was the last one to touch this, ignore the update.
+      if (patientData.lastNotifiedTime === newStart && patientData.lastUpdatedBy === 'system_webhook') {
+        console.log("Loop blocked: already processed this move.");
+        continue;
+      }
+
+      // 3. AGGRESSIVE CLEANUP (Fixes Overlapping)
       try {
         const checkSlots = await calendar.events.list({
           calendarId: CALENDAR_ID,
-          timeMin: new Date(new Date(newStart).getTime() - 1000).toISOString(),
-          timeMax: new Date(new Date(event.end?.dateTime!).getTime() + 1000).toISOString(),
+          timeMin: new Date(new Date(newStart).getTime() - 5000).toISOString(),
+          timeMax: new Date(new Date(event.end?.dateTime!).getTime() + 5000).toISOString(),
           singleEvents: true,
         });
 
-        // Delete ANY 'Available' slot in this new window
-        const overlaps = checkSlots.data.items?.filter(e => e.summary === 'Available' && e.id !== event.id);
-        if (overlaps) {
-          for (const slot of overlaps) {
+        const ghostSlots = checkSlots.data.items?.filter(e => e.summary === 'Available' && e.id !== event.id);
+        if (ghostSlots && ghostSlots.length > 0) {
+          for (const slot of ghostSlots) {
             await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
+            console.log("Cleanup: Deleted Available slot");
           }
         }
-      } catch (err) { console.log("Cleanup failed"); }
+      } catch (err) { console.error("Cleanup fail"); }
 
+      // 4. PREPARE NOTIFICATIONS
       const timeStr = new Date(newStart).toLocaleString('en-IN', {
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
       });
-      
       const rescheduleUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
 
-      // --- FIXED EMAIL TRANSPORT ---
+      // 5. UPDATE EVENT FIRST (Prevents duplicate notifications if email/WhatsApp is slow)
+      await calendar.events.patch({
+        calendarId: CALENDAR_ID,
+        eventId: event.id!,
+        requestBody: { 
+          description: JSON.stringify({ 
+            ...patientData, 
+            lastNotifiedTime: newStart, 
+            lastUpdatedBy: 'system_webhook', // This blocks the loop
+            rescheduled: false 
+          }) 
+        }
+      });
+
+      // 6. SEND NOTIFICATIONS
+      // Email
       try {
         const transporter = nodemailer.createTransport({
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true,
+          host: "smtp.gmail.com", port: 465, secure: true,
           auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
         });
         await transporter.sendMail({
           from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
           to: patientData.email,
-          subject: `Appointment Updated - Dr. Dixit Ayurveda`,
+          subject: `Appointment Moved - Dr. Dixit Ayurveda`,
           html: `<p>Namaste ${patientData.name}, your session is moved to: <b>${timeStr}</b></p>
                  <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a></p>
                  <p>Reschedule: ${rescheduleUrl}</p>`
         });
       } catch (e) { console.error("Email fail"); }
 
-      // --- FIXED WHATSAPP (Added Prefix) ---
+      // WhatsApp
       try {
         const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
         const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
         const formattedPatientPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
-        
         await twilioClient.messages.create({
           body: `Namaste ${patientData.name}, your session moved to ${timeStr}.\nMeet: ${process.env.NEXT_PUBLIC_MEET_LINK}\nReschedule: ${rescheduleUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: `whatsapp:${formattedPatientPhone}` // Fixed prefix
+          to: `whatsapp:${formattedPatientPhone}`
         });
       } catch (e) { console.error("WhatsApp fail"); }
-
-      // Save state
-      await calendar.events.patch({
-        calendarId: CALENDAR_ID,
-        eventId: event.id!,
-        requestBody: { 
-          description: JSON.stringify({ ...patientData, lastNotifiedTime: newStart, rescheduled: false }) 
-        }
-      });
     }
 
     return new Response('OK', { status: 200 });
