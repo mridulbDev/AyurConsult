@@ -2,6 +2,7 @@
 import { Facebook, Youtube, MessageCircle, GraduationCap, Mail, MapPin, Phone,Leaf } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Footer() {
   const { lang } = useLanguage();
@@ -84,7 +85,10 @@ export default function Footer() {
           © 2026 {t.drName}. {lang === 'en' ? 'All rights reserved.' : 'सर्वाधिकार सुरक्षित।'}
         </p>
         <div className="flex items-center gap-2 opacity-30 italic text-[10px]">
-          <Leaf size={14} />
+         
+
+
+          <Leaf size={20} className="text-saffron" />
           <span>{lang === 'en' ? 'Classical Wisdom, Modern Precision' : 'शास्त्रीय ज्ञान, आधुनिक सटीकता'}</span>
         </div>
       </div>

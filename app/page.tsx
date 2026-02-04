@@ -35,8 +35,8 @@ export default function HomePage() {
     heroDesc: lang === 'en' ? "Consult with Dr. Dixit Ayurveda, a renowned surgeon and educator blending classical Shalya Tantra with modern medical precision." : "डॉ. दीक्षित आयुर्वेद से परामर्श लें, जो एक प्रसिद्ध सर्जन और शिक्षक हैं, जो शास्त्रीय शल्य तंत्र को आधुनिक चिकित्सा सटीकता के साथ जोड़ते हैं।",
     heroCta: lang === 'en' ? "Book Appointment" : "अपॉइंटमेंट बुक करें",
     blogs: lang === 'en' ? "Read Blogs" : "ब्लॉग पढ़ें",
-    meetDr: lang === 'en' ? "Meet Your Doctor — Prof. Mahesh Dixit" : "अपने डॉक्टर से मिलें — प्रो. महेश दीक्षित",
-    drBio: lang === 'en' ? "Prof. Mahesh Dixit is a renowned Ayurvedic surgeon, educator, and healthcare leader with over 25 years of experience in clinical practice, teaching, research, and administration." : "प्रो. महेश दीक्षित एक प्रसिद्ध आयुर्वेदिक सर्जन, शिक्षक और स्वास्थ्य सेवा क्षेत्र के मार्गदर्शक हैं, जिन्हें नैदानिक अभ्यास, शिक्षण, अनुसंधान और प्रशासन में 25 से अधिक वर्षों का अनुभव प्राप्त है।",
+    meetDr: lang === 'en' ? "Meet Your Doctor — Dr. Mahesh Dixit" : "अपने डॉक्टर से मिलें — डॉ. महेश दीक्षित",
+    drBio: lang === 'en' ? "Dr. Mahesh Dixit is a renowned Ayurvedic surgeon, educator, and healthcare leader with over 25 years of experience in clinical practice, teaching, research, and administration." : "डॉ. महेश दीक्षित एक प्रसिद्ध आयुर्वेदिक सर्जन, शिक्षक और स्वास्थ्य सेवा क्षेत्र के मार्गदर्शक हैं, जिन्हें नैदानिक अभ्यास, शिक्षण, अनुसंधान और प्रशासन में 25 से अधिक वर्षों का अनुभव प्राप्त है।",
     stat1: lang === 'en' ? "Theses Guided" : "निर्देशित शोध",
     stat2: lang === 'en' ? "Global Seminars" : "वैश्विक सेमिनार",
     stat3: lang === 'en' ? "Plants Distributed" : "पौधे वितरित किए",
@@ -88,8 +88,19 @@ export default function HomePage() {
       {/* Hero Section - Image Left, Content Right */}
       <section className="max-w-7xl mx-auto px-6 pt-12 grid md:grid-cols-2 gap-12 items-center">
         {/* Image now comes first in DOM for mobile/tablet, will be left on md+ screens */}
-        <div className="relative h-[500px] rounded-[40px] overflow-hidden shadow-2xl border-4 border-white animate-float order-2 md:order-1">
-          <Image src="/images/drdixit.png" alt="Prof. Mahesh Dixit" fill className="object-cover" priority />
+        <div className="relative h-[500px] rounded-[40px] overflow-hidden shadow-2xl border-4 border-white  order-2 md:order-1">
+          {/* Image Section */}
+<div className="relative h-[500px] rounded-[40px] overflow-hidden shadow-2xl border-4 border-white group order-2 md:order-1 animate-zoom-in transition-transform duration-700 ease-out hover:shadow-forest/20">
+  <Image 
+    src="/images/drdixit.png" 
+    alt="Prof. Mahesh Dixit" 
+    fill 
+    className="object-cover transition-transform duration-1000 ease-in-out group-hover:scale-110" 
+    priority 
+  />
+  {/* Professional Overlay Gradient */}
+  <div className="absolute inset-0 bg-gradient-to-t from-forest/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
+</div>
         </div>
 
         {/* Text Content comes second in DOM, will be right on md+ screens */}
@@ -140,7 +151,7 @@ export default function HomePage() {
                     <li>{t.acad3}</li>
                   </ul>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-4"> 
                   <h4 className="font-bold flex items-center gap-2 text-saffron uppercase tracking-wider text-sm"><Award size={20} /> {t.awardTitle}</h4>
                   <ul className="list-herbal text-sm text-forest/80">
                     <li>{t.award1}</li>

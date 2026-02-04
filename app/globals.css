@@ -34,6 +34,15 @@ body {
   100% { transform: translateY(0px); }
 }
 
+@keyframes professional-zoom {
+  0% { transform: scale(1.2); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-zoom-in {
+  animation: professional-zoom 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
 .animate-fade-up {
   animation: fadeInUp 0.8s ease-out forwards;
 }
@@ -66,6 +75,7 @@ body {
 .stat-box-sand {
   @apply flex flex-col items-center justify-center p-4 bg-sand rounded-2xl border border-forest/10 transition-transform hover:-translate-y-1 shadow-sm;
 }
+
 
 .list-herbal {
   @apply space-y-3 list-none;
@@ -105,3 +115,5 @@ body {
     opacity: 0.9;
   }
 }
+
+

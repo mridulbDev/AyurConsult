@@ -163,7 +163,7 @@ function ConsultationContent() {
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute top-[-5%] left-[-5%] w-[500px] h-[500px] bg-forest/10 rounded-full blur-[100px] animate-pulse"></div>
           <div className="absolute bottom-[10%] right-[-5%] w-[400px] h-[400px] bg-saffron/5 rounded-full blur-[80px]"></div>
-          <Leaf className="absolute top-40 right-20 text-forest/10 rotate-[30deg]" size={100} />
+         
         </div>
 
         <div className="bg-forest pt-32 md:pt-48 pb-32 md:pb-40 px-6 relative overflow-hidden">
