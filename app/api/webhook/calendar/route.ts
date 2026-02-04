@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     const changedEvents = response.data.items || [];
 
     for (const event of changedEvents) {
-      // 1. SKIP if not a confirmed booking
+      // 1. Only act on CONFIRMED events that have patient data in description
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let patientData;
@@ -41,32 +41,39 @@ export async function POST(req: Request) {
       } catch (e) { continue; }
 
       const newStart = event.start?.dateTime;
-      if (!newStart) continue;
+      const newEnd = event.end?.dateTime;
+      if (!newStart || !newEnd) continue;
 
-      // 2. CRITICAL: STOP THE LOOP
-      // If our system was the last one to touch this, ignore the update.
+      // 2. STOP INFINITE LOOP
+      // If the event was already updated by this webhook, skip it so we don't re-notify
       if (patientData.lastNotifiedTime === newStart && patientData.lastUpdatedBy === 'system_webhook') {
-        console.log("Loop blocked: already processed this move.");
         continue;
       }
 
-      // 3. AGGRESSIVE CLEANUP (Fixes Overlapping)
+      // 3. PROACTIVE SLOT REPLACEMENT
+      // Search the exact window where the doctor moved the event
       try {
         const checkSlots = await calendar.events.list({
           calendarId: CALENDAR_ID,
-          timeMin: new Date(new Date(newStart).getTime() - 5000).toISOString(),
-          timeMax: new Date(new Date(event.end?.dateTime!).getTime() + 5000).toISOString(),
+          timeMin: new Date(new Date(newStart).getTime() - 1000).toISOString(),
+          timeMax: new Date(new Date(newEnd).getTime() + 1000).toISOString(),
           singleEvents: true,
         });
 
-        const ghostSlots = checkSlots.data.items?.filter(e => e.summary === 'Available' && e.id !== event.id);
+        // Find and delete any "Available" slots in this new position
+        const ghostSlots = checkSlots.data.items?.filter(e => 
+          e.summary === 'Available' && e.id !== event.id
+        );
+
         if (ghostSlots && ghostSlots.length > 0) {
           for (const slot of ghostSlots) {
             await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
-            console.log("Cleanup: Deleted Available slot");
+            console.log(`Successfully replaced Available slot at ${newStart}`);
           }
         }
-      } catch (err) { console.error("Cleanup fail"); }
+      } catch (err) {
+        console.error("Slot replacement failed:", err);
+      }
 
       // 4. PREPARE NOTIFICATIONS
       const timeStr = new Date(newStart).toLocaleString('en-IN', {
@@ -74,7 +81,7 @@ export async function POST(req: Request) {
       });
       const rescheduleUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
 
-      // 5. UPDATE EVENT FIRST (Prevents duplicate notifications if email/WhatsApp is slow)
+      // 5. UPDATE DESCRIPTION (To mark this move as notified and prevent loops)
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
@@ -82,7 +89,7 @@ export async function POST(req: Request) {
           description: JSON.stringify({ 
             ...patientData, 
             lastNotifiedTime: newStart, 
-            lastUpdatedBy: 'system_webhook', // This blocks the loop
+            lastUpdatedBy: 'system_webhook', 
             rescheduled: false 
           }) 
         }
@@ -99,11 +106,14 @@ export async function POST(req: Request) {
           from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
           to: patientData.email,
           subject: `Appointment Moved - Dr. Dixit Ayurveda`,
-          html: `<p>Namaste ${patientData.name}, your session is moved to: <b>${timeStr}</b></p>
-                 <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a></p>
-                 <p>Reschedule: ${rescheduleUrl}</p>`
+          html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee;">
+                  <h2>Namaste ${patientData.name},</h2>
+                  <p>Your session has been moved to: <b>${timeStr}</b></p>
+                  <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
+                  <p style="margin-top:20px; font-size:12px;">Need to change this? <a href="${rescheduleUrl}">Reschedule here</a></p>
+                </div>`
         });
-      } catch (e) { console.error("Email fail"); }
+      } catch (e) { console.error("Email failed"); }
 
       // WhatsApp
       try {
@@ -111,11 +121,11 @@ export async function POST(req: Request) {
         const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
         const formattedPatientPhone = cleanPhone.startsWith('91') ? `+${cleanPhone}` : `+91${cleanPhone}`;
         await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, your session moved to ${timeStr}.\nMeet: ${process.env.NEXT_PUBLIC_MEET_LINK}\nReschedule: ${rescheduleUrl}`,
+          body: `Namaste ${patientData.name}, your session is moved to ${timeStr}.\n\nMeeting Link: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${rescheduleUrl}`,
           from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
           to: `whatsapp:${formattedPatientPhone}`
         });
-      } catch (e) { console.error("WhatsApp fail"); }
+      } catch (e) { console.error("WhatsApp failed"); }
     }
 
     return new Response('OK', { status: 200 });
