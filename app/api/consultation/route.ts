@@ -35,7 +35,17 @@ export async function GET(req: Request) {
     
     if (bookingId) {
       const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
-      return Response.json({ details: JSON.parse(event.data.description || '{}') });
+      const data = JSON.parse(event.data.description || '{}');
+
+      //  Block the UI from loading if already rescheduled
+      if (data.rescheduled === true) {
+        return Response.json({ 
+          error: "ALREADY_RESCHEDULED", 
+          message: "This appointment has already been moved once. Please contact the doctor for further changes." 
+        }, { status: 403 });
+      }
+
+      return Response.json({ details: data });
     }
 
     if (!date) return Response.json({ slots: [] });
