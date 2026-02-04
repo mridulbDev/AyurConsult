@@ -73,6 +73,8 @@ export async function GET(req: Request) {
           bookedTimes.add(ev.start?.dateTime);
         }
       } else if (ev.summary === 'Available') {
+        ev.description = '';
+        ev.location = '';
         availableItems.push(ev);
       }
     }
@@ -112,7 +114,7 @@ export async function POST(req: Request) {
 
       // 2. Update New Slot
       const timeStr = new Date(start!).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
-      const reschedUrl = `${baseUrl}/consultation?reschedule=${eventId}`;
+      const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${eventId}`;
       
       const newDesc = JSON.stringify({ 
         ...oldData, 
@@ -148,7 +150,7 @@ export async function POST(req: Request) {
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` },
-      body: JSON.stringify({ amount: Number(process.env.RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
+      body: JSON.stringify({ amount: Number(process.env.NEXT_PUBLIC_RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
     });
     const order = await razorpayRes.json();
     return Response.json({ orderId: order.id });

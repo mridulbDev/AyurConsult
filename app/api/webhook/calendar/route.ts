@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       const timeStr = new Date(newStart).toLocaleString('en-IN', { 
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
       });
-      const reschedUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
+      const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
 
       // Update event metadata to prevent loops and reset patient's reschedule right
       await calendar.events.patch({
