@@ -32,10 +32,10 @@ export async function POST(req: Request) {
       const newStart = event.start?.dateTime;
       if (!newStart) continue;
 
-      // HANDSHAKE: If we already notified for this specific time, ignore.
+      // 🚩 CRITICAL: Stop infinite loop
       if (patientData.lastNotifiedTime === newStart && patientData.lastUpdatedBy === 'system_webhook') continue;
 
-      // OVERLAP SWEEP: Clear space around the new time
+      // 🚩 CRITICAL: Delete overlapping Available slots
       const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: newStart,
@@ -47,10 +47,10 @@ export async function POST(req: Request) {
         for (const slot of ghosts) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
       }
 
+      // Update description to lock and reset reschedule right
       const timeStr = new Date(newStart).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
       const reschedUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
 
-      // Update description to mark as processed and RESET reschedule rights
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
@@ -59,23 +59,19 @@ export async function POST(req: Request) {
         }
       });
 
-      // Notify
+      // Send ONE notification
       const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: patientData.email,
-        subject: `Appointment Moved - ${patientData.name}`,
-        html: `<div style="font-family: sans-serif; padding:20px; border:1px solid #eee;">
-                <p>Namaste ${patientData.name}, your session has been moved to <b>${timeStr}</b>.</p>
-                <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a></p>
-                <p style="font-size:12px; margin-top:15px;">Need to change this? <a href="${reschedUrl}">Reschedule once</a></p>
-              </div>`
+        subject: `Appointment Updated - ${patientData.name}`,
+        html: `<p>Namaste ${patientData.name}, your session moved to <b>${timeStr}</b>.</p><p><a href="${reschedUrl}">Reschedule here</a></p>`
       });
 
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
       await twilioClient.messages.create({
-        body: `Namaste ${patientData.name}, session moved to ${timeStr}.\n\nReschedule: ${reschedUrl}`,
+        body: `Namaste ${patientData.name}, session moved to ${timeStr}. Reschedule: ${reschedUrl}`,
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
         to: `whatsapp:${cleanPhone.startsWith('91') ? '+' + cleanPhone : '+91' + cleanPhone}`
       });

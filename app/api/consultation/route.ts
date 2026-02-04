@@ -30,7 +30,7 @@ export async function GET(req: Request) {
       });
       const response = await calendar.events.list({ calendarId: CALENDAR_ID });
       if (response.data.nextSyncToken) await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
-      return Response.json({ success: true });
+      return Response.json({ success: true, message: "Webhook Initialized" });
     }
     
     if (bookingId) {
@@ -39,7 +39,6 @@ export async function GET(req: Request) {
     }
 
     if (!date) return Response.json({ slots: [] });
-
     const response = await calendar.events.list({
       calendarId: CALENDAR_ID,
       timeMin: `${date}T00:00:00+05:30`,
@@ -57,15 +56,9 @@ export async function GET(req: Request) {
         bookedTimes.add(ev.start?.dateTime);
       } else if (ev.summary?.startsWith('PENDING')) {
         const data = JSON.parse(ev.description || '{}');
-        // If expired (10 mins), treat it as AVAILABLE immediately in the response
         if (now - (data.pendingAt || 0) > 600000) {
-          // Fire and forget the update to Google, but keep the slot for the UI
-          calendar.events.patch({ 
-            calendarId: CALENDAR_ID, 
-            eventId: ev.id!, 
-            requestBody: { summary: 'Available', description: '', location: '' } 
-          });
-          availableItems.push(ev); 
+          await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: ev.id!, requestBody: { summary: 'Available', description: '', location: '' } });
+          availableItems.push(ev);
         } else {
           bookedTimes.add(ev.start?.dateTime);
         }
@@ -73,11 +66,7 @@ export async function GET(req: Request) {
         availableItems.push(ev);
       }
     }
-
-    // Filter out any "Available" slots that are covered by a "CONFIRMED" slot
-    const finalSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
-    return Response.json({ slots: finalSlots });
-
+    return Response.json({ slots: availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime)) });
   } catch (error: any) {
     return Response.json({ error: error.message, slots: [] }, { status: 500 });
   }
@@ -94,26 +83,24 @@ export async function POST(req: Request) {
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       if (oldData.rescheduled === true) {
-        return Response.json({ error: "This appointment has already been rescheduled once." }, { status: 400 });
+        return Response.json({ error: "Only one reschedule permitted." }, { status: 400 });
       }
 
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
-      const end = newSlot.data.end?.dateTime;
 
-      // 1. Clear overlapping Available slots at target
+      // 1. Clear destination overlaps
       const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: start!,
-        timeMax: end!,
+        timeMax: newSlot.data.end?.dateTime!,
         singleEvents: true
       });
       for (const ev of (overlaps.data.items || [])) {
-        if (ev.id !== eventId && ev.summary === 'Available') {
-          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
-        }
+        if (ev.id !== eventId && ev.summary === 'Available') await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
       }
 
+      // 2. Update New Slot
       const timeStr = new Date(start!).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
       const reschedUrl = `${baseUrl}/consultation?reschedule=${eventId}`;
       
@@ -124,55 +111,33 @@ export async function POST(req: Request) {
         lastNotifiedTime: start 
       });
 
-      // 2. Mark New Slot as Confirmed
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: eventId,
-        requestBody: { 
-          summary: `CONFIRMED (Rescheduled): ${oldData.name}`, 
-          location: meetLink, 
-          description: newDesc 
-        }
+        requestBody: { summary: `CONFIRMED (Rescheduled): ${oldData.name}`, location: meetLink, description: newDesc }
       });
 
-      // 3. Revert Old Slot to Available
-      await calendar.events.patch({
-        calendarId: CALENDAR_ID,
-        eventId: rescheduleId,
-        requestBody: { summary: 'Available', description: '', location: '' }
-      });
+      // 3. Reset Old Slot
+      await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
 
-      // 4. Notification
+      // Notifications
       const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: oldData.email,
         subject: `Reschedule Confirmed - ${oldData.name}`,
-        html: `<div style="font-family: sans-serif; padding: 20px;">
-                <h2>Reschedule Successful</h2>
-                <p>Namaste ${oldData.name}, your appointment is now at <b>${timeStr}</b>.</p>
-                <p><a href="${meetLink}" style="background:#E8A856; color:#fff; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
-                <p style="font-size:12px; color:#666; margin-top:20px;">Link to your booking: <a href="${reschedUrl}">${reschedUrl}</a></p>
-              </div>`
+        html: `<p>Namaste ${oldData.name}, your appointment is moved to <b>${timeStr}</b>.</p><p><a href="${meetLink}">Join Call</a></p>`
       });
 
       return Response.json({ success: true });
     }
 
-    // New Booking Flow
     const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false });
-    await calendar.events.patch({ 
-      calendarId: CALENDAR_ID, 
-      eventId: eventId, 
-      requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } 
-    });
+    await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
     
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json', 
-        'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` 
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` },
       body: JSON.stringify({ amount: Number(process.env.RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
     });
     const order = await razorpayRes.json();
