@@ -24,90 +24,62 @@ export async function POST(req: Request) {
     if (response.data.nextSyncToken) await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
 
     for (const event of (response.data.items || [])) {
-      // Only care about events that are CONFIRMED and moved by the doctor
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let patientData;
       try { patientData = JSON.parse(event.description); } catch (e) { continue; }
 
       const newStart = event.start?.dateTime;
-      const newEnd = event.end?.dateTime;
-      if (!newStart || !newEnd) continue;
+      if (!newStart) continue;
 
-      // 🚩 LOOP PREVENTION: Skip if we already handled this specific move
+      // HANDSHAKE: If we already notified for this specific time, ignore.
       if (patientData.lastNotifiedTime === newStart && patientData.lastUpdatedBy === 'system_webhook') continue;
 
-      /** * 🚩 ROBUST OVERLAP SWEEP 
-       * We search for any "Available" slot at the EXACT same start time.
-       * We use singleEvents: true to ensure we catch recurring instances too.
-       */
-      const checkOverlaps = await calendar.events.list({
+      // OVERLAP SWEEP: Clear space around the new time
+      const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: newStart,
-        timeMax: newEnd,
+        timeMax: event.end?.dateTime!,
         singleEvents: true,
       });
-
-      const duplicateSlots = checkOverlaps.data.items?.filter(e => 
-        (e.summary === 'Available' || e.summary?.includes('PENDING')) && e.id !== event.id
-      );
-
-      if (duplicateSlots && duplicateSlots.length > 0) {
-        for (const slot of duplicateSlots) {
-          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
-        }
+      const ghosts = overlaps.data.items?.filter(e => e.summary === 'Available' && e.id !== event.id);
+      if (ghosts) {
+        for (const slot of ghosts) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
       }
 
-      const timeStr = new Date(newStart).toLocaleString('en-IN', { 
-        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
-      });
-      const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
+      const timeStr = new Date(newStart).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+      const reschedUrl = `${baseUrl}/consultation?reschedule=${event.id}`;
 
-      // Update event metadata to prevent loops and reset patient's reschedule right
+      // Update description to mark as processed and RESET reschedule rights
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
         requestBody: { 
-          description: JSON.stringify({ 
-            ...patientData, 
-            lastNotifiedTime: newStart, 
-            lastUpdatedBy: 'system_webhook', 
-            rescheduled: false 
-          }) 
+          description: JSON.stringify({ ...patientData, lastNotifiedTime: newStart, lastUpdatedBy: 'system_webhook', rescheduled: false }) 
         }
       });
 
-      // Send Email
-      const transporter = nodemailer.createTransport({ 
-        service: 'gmail', 
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
-      });
+      // Notify
+      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: patientData.email,
-        subject: `Appointment Updated - ${patientData.name}`,
+        subject: `Appointment Moved - ${patientData.name}`,
         html: `<div style="font-family: sans-serif; padding:20px; border:1px solid #eee;">
-                <h3>Appointment Rescheduled</h3>
-                <p>Namaste ${patientData.name}, your session with Dr.Dixit is moved to: <b>${timeStr}</b></p>
-                <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="color:#123025; font-weight:bold;">Join Video Call</a></p>
-                <hr style="border:none; border-top:1px solid #eee; margin:20px 0;">
-                <p style="font-size:12px; color:#666;">Need to change this? You can <a href="${reschedUrl}">reschedule here</a>.</p>
+                <p>Namaste ${patientData.name}, your session has been moved to <b>${timeStr}</b>.</p>
+                <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a></p>
+                <p style="font-size:12px; margin-top:15px;">Need to change this? <a href="${reschedUrl}">Reschedule once</a></p>
               </div>`
       });
 
-      // Send WhatsApp
-      try {
-        const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-        const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
-        await twilioClient.messages.create({
-          body: `Namaste ${patientData.name}, your session with Dr.Dixit is moved to ${timeStr}.\n\nMeeting: ${process.env.NEXT_PUBLIC_MEET_LINK}\n\nReschedule: ${reschedUrl}`,
-          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-          to: `whatsapp:${cleanPhone.startsWith('91') ? '+' + cleanPhone : '+91' + cleanPhone}`
-        });
-      } catch (smsErr) { console.error("SMS failed", smsErr); }
+      const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+      const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
+      await twilioClient.messages.create({
+        body: `Namaste ${patientData.name}, session moved to ${timeStr}.\n\nReschedule: ${reschedUrl}`,
+        from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+        to: `whatsapp:${cleanPhone.startsWith('91') ? '+' + cleanPhone : '+91' + cleanPhone}`
+      });
     }
     return new Response('OK', { status: 200 });
-  } catch (error) {
-    return new Response('Error', { status: 500 });
-  }
+  } catch (error) { return new Response('Error', { status: 500 }); }
 }

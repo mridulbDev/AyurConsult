@@ -38,19 +38,23 @@ export async function POST(req: Request) {
       }
     });
 
-    // Final Notifications
     const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
     await transporter.sendMail({
       from: `"Dr. Dixit Ayurveda"`,
       to: patientData.email,
       subject: `Consultation Confirmed - ${patientData.name}`,
-      html: `<p>Namaste ${patientData.name},your appointment is confirmed for <b>${timeStr}</b> with Dr. Dixit.</p><p><a href="${reschedUrl}">Reschedule Link</a></p>`
+      html: `<div style="font-family: sans-serif; padding: 20px;">
+              <h2>Booking Confirmed</h2>
+              <p>Namaste ${patientData.name}, confirmed for <b>${timeStr}</b>.</p>
+              <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a></p>
+              <p>Reschedule link: <a href="${reschedUrl}">${reschedUrl}</a></p>
+            </div>`
     });
 
     const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
     const cleanPhone = patientData.phone.toString().replace(/\D/g, '');
     await twilioClient.messages.create({
-      body: `Namaste ${patientData.name}, your appointment is confirmed for ${timeStr} with Dr. Dixit. Reschedule: ${reschedUrl}`,
+      body: `Namaste ${patientData.name}, confirmed for ${timeStr}.\n\nReschedule: ${reschedUrl}`,
       from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
       to: `whatsapp:${cleanPhone.startsWith('91') ? '+' + cleanPhone : '+91' + cleanPhone}`
     });
