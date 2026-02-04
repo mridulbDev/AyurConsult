@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda"`,
         to: patientData.email,
-        subject: `Consultation Confirmed - ${patientData.name}`,
+        subject: `Dr. Dixit Ayurveda - Consultation Confirmed - ${patientData.name}`,
         html: `<div style="font-family: sans-serif; padding: 20px;">
                 <h2>Booking Confirmed</h2>
                 <p>Namaste ${patientData.name}, scheduled for: <b>${timeStr}</b></p>
