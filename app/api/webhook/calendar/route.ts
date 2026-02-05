@@ -1,4 +1,4 @@
-import { google, calendar_v3 } from 'googleapis';
+import { google } from 'googleapis';
 import { Redis } from '@upstash/redis';
 import nodemailer from 'nodemailer';
 
@@ -11,19 +11,15 @@ export async function POST(req: Request) {
       key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       scopes: ['https://www.googleapis.com/auth/calendar'],
     });
-
     const calendar = google.calendar({ version: 'v3', auth });
     const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
 
-    if (req.headers.get('x-goog-resource-state') === 'sync') return new Response('OK', { status: 200 });
+    if (req.headers.get('x-goog-resource-state') === 'sync') return new Response('OK');
 
-    // 1. Handle Sync Token properly (must be string or undefined, never null)
-    const storedToken = await redis.get<string>('google_calendar_sync_token');
-    const syncToken = storedToken ?? undefined;
-
-    const response = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      syncToken: syncToken,
+    const syncToken = await redis.get<string>('google_calendar_sync_token');
+    const response = await calendar.events.list({ 
+      calendarId: CALENDAR_ID, 
+      syncToken: syncToken ?? undefined 
     });
 
     if (response.data.nextSyncToken) {
@@ -37,84 +33,52 @@ export async function POST(req: Request) {
     });
 
     for (const event of changes) {
-      // Basic validation
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let patientData;
-      try {
-        patientData = JSON.parse(event.description);
-      } catch { continue; }
+      try { patientData = JSON.parse(event.description); } catch { continue; }
 
-      const newStart = event.start?.dateTime;
-      const newEnd = event.end?.dateTime;
+      const currentStart = event.start?.dateTime;
+      if (!currentStart) continue;
 
-      // Ensure we have a valid string for time comparison
-      if (!newStart || !newEnd || patientData.lastNotifiedTime === newStart) continue;
+      // IDEMPOTENCY SHIELD: If time matches metadata, the system did this move. IGNORE.
+      if (patientData.lastNotifiedTime === currentStart) continue;
 
-      // 2. Cleanup Ghost Slots (Casting parameters to string to fix the "red line")
-      try {
-        const checkSlots = await calendar.events.list({
-          calendarId: CALENDAR_ID,
-          timeMin: newStart as string,
-          timeMax: newEnd as string,
-          singleEvents: true,
-        });
-
-        const ghostSlot = checkSlots.data.items?.find(e => 
-          e.summary === 'Available' && e.id !== event.id
-        );
-
-        if (ghostSlot?.id) {
-          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghostSlot.id });
-        }
-      } catch (err) {
-        console.error("Slot cleanup failed:", err);
-      }
-
-      // 3. Notification Logic
-      const timeStr = new Date(newStart).toLocaleString('en-IN', { 
-        dateStyle: 'medium', 
-        timeStyle: 'short', 
-        timeZone: 'Asia/Kolkata' 
-      });
+      // DOCTOR MOVE DETECTED: Time changed but metadata still has the old time.
       
+      // Cleanup destination slot
+      const overlaps = await calendar.events.list({
+        calendarId: CALENDAR_ID,
+        timeMin: currentStart,
+        timeMax: event.end?.dateTime!,
+        singleEvents: true
+      });
+      const ghost = overlaps.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
+      if (ghost?.id) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id });
+
+      const timeStr = new Date(currentStart).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
       const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
 
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: patientData.email,
         subject: `Appointment Update - Dr. Dixit Ayurveda`,
-        html: `
-          <div style="font-family: sans-serif; color: #123025;">
-            <p>Namaste ${patientData.name},</p>
-            <p>The doctor has updated your appointment time to: <b>${timeStr}</b></p>
-            <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}" style="background:#123025; color:white; padding:10px; text-decoration:none; border-radius:5px;">Join Video Call</a></p>
-            <p style="font-size:12px; color:#666;">Need to change this? <a href="${reschedUrl}">Reschedule once here</a></p>
-          </div>`
+        html: `<p>Namaste ${patientData.name}, the doctor moved your session to: <b>${timeStr}</b></p>
+               <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a> | <a href="${reschedUrl}">Reschedule Link</a></p>`
       });
 
-      // 4. Update Event State
+      // Update metadata to sync the "notified time" with the "current time"
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
-        eventId: event.id as string,
-        requestBody: { 
-          description: JSON.stringify({ 
-            ...patientData, 
-            lastNotifiedTime: newStart, 
-            rescheduled: false, 
-            lastUpdatedBy: 'doctor' 
-          }) 
+        eventId: event.id!,
+        requestBody: {
+          description: JSON.stringify({ ...patientData, lastNotifiedTime: currentStart, rescheduled: false, lastUpdatedBy: 'doctor' })
         }
       });
     }
-
-    return new Response('OK', { status: 200 });
+    return new Response('OK');
   } catch (error: any) {
-    if (error.code === 410) {
-      await redis.del('google_calendar_sync_token');
-      return new Response('Sync Token Expired - Resetting', { status: 200 });
-    }
-    console.error("Webhook Error:", error);
-    return new Response('Internal Error', { status: 500 });
+    if (error.code === 410) await redis.del('google_calendar_sync_token');
+    return new Response('OK');
   }
 }

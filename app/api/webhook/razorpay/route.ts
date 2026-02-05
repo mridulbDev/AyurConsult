@@ -3,7 +3,6 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 
 console.log("Razorpay Webhook Hit");
-
 export async function POST(req: Request) {
   try {
     const body = await req.text();
@@ -12,7 +11,7 @@ export async function POST(req: Request) {
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
 
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
-
+    console.log("Razorpay Signature Verified");
     const data = JSON.parse(body);
     if (data.event !== 'payment.captured') return new Response('OK');
 
@@ -29,12 +28,15 @@ export async function POST(req: Request) {
     const patientData = JSON.parse(event.data.description || '{}');
     const start = event.data.start?.dateTime;
     const meetLink = process.env.NEXT_PUBLIC_MEET_LINK!;
-
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    //Prepare Links
+    const reschedUrl = `${baseUrl}/consultation?reschedule=${bookingId}`;
+    
     const finalDesc = JSON.stringify({
       ...patientData,
       rescheduled: false,
       lastUpdatedBy: 'system',
-      lastNotifiedTime: start
+      lastNotifiedTime: start // Syncing this prevents the Webhook from double-mailing
     });
 
     await calendar.events.patch({
@@ -57,14 +59,33 @@ export async function POST(req: Request) {
       from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
       to: patientData.email,
       subject: `Consultation Confirmed - ${patientData.name}`,
-      html: `<h2>Namaste ${patientData.name}</h2>
-             <p>Your session is confirmed for: <b>${timeStr}</b></p>
-             <p><a href="${meetLink}">Join Meeting</a></p>
-             <p><a href="${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${bookingId}">Reschedule Link</a></p>`
+      html: `
+        <div style="font-family: sans-serif; color: #123025; max-width: 600px;">
+          <h2>Namaste ${patientData.name},</h2>
+          <p>Your Ayurvedic consultation has been successfully booked.</p>
+          
+          <div style="background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Date & Time:</strong> ${timeStr}</p>
+            <p><strong>Platform:</strong> Google Meet</p>
+          </div>
+
+          <p>
+            <a href="${meetLink}" style="display: inline-block; background: #123025; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Join Meeting
+            </a>
+          </p>
+
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+          
+          <p style="font-size: 13px; color: #666;">
+            Need to change your time? You can reschedule your appointment once using the link below:
+            <br />
+            <a href="${reschedUrl}">${reschedUrl}</a>
+          </p>
+        </div>
+      `
     });
 
     return new Response('OK');
-  } catch (error) {
-    return new Response('Error', { status: 500 });
-  }
+  } catch (error) { return new Response('Error', { status: 500 }); }
 }
