@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       if (!currentStart) continue;
 
       // IDEMPOTENCY SHIELD: If time matches metadata, the system did this move. IGNORE.
-      if (patientData.lastNotifiedTime === currentStart || patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "system"  ) continue;
+      if (patientData.lastNotifiedTime === currentStart || patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user" ) continue;
 
       // DOCTOR MOVE DETECTED: Time changed but metadata still has the old time.
       
