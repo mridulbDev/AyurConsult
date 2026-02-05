@@ -11,14 +11,15 @@ export async function POST(req: Request) {
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
     const data = JSON.parse(body);
     const payment = data.payload.payment.entity;
-
+    console.log(data)
 const bookingId = payment.notes?.booking_id;
 
     console.log("Razor Pay Processing Booking ID:", bookingId);
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
     console.log("Razorpay Signature Verified");
     
-    if (data.event === 'payment.captured' || data.event === 'order.paid') {
+    if (data.event !== 'payment.captured' ) return new Response('OK');
+
     
     const auth = new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
@@ -92,8 +93,7 @@ const bookingId = payment.notes?.booking_id;
         </div>
       ` 
     });
-    return new Response('OK')};
 
-;
+    return new Response('OK');
   } catch (error) { return new Response('Error', { status: 500 }); }
 }
