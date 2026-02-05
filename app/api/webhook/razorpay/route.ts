@@ -24,6 +24,10 @@ export async function POST(req: Request) {
     const isValid = validateWebhookSignature(body, signature, secret);
     if (!isValid) return new Response('Unauthorized', { status: 400 });
 
+console.log("Razorpay Webhook valid:");
+
+
+
     const payload = JSON.parse(body);
     if (payload.event !== 'payment.captured') return new Response('OK', { status: 200 });
 
