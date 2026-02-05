@@ -162,7 +162,8 @@ export async function POST(req: Request) {
     // --- WORKFLOW: INITIAL BOOKING ---
     // 1. Mark Slot as PENDING to hold it during payment
     const pendingPayload = JSON.stringify({ 
-      ...patientData, 
+      ...patientData,
+      eventId: eventId, 
       pendingAt: Date.now(), 
       rescheduled: false, 
       lastUpdatedBy: 'SYSTEM' 
@@ -187,7 +188,9 @@ export async function POST(req: Request) {
       body: JSON.stringify({ 
         amount: Number(process.env.RAZORPAY_AMOUNT), 
         currency: "INR", 
-        notes: { booking_id: eventId } 
+        notes: {
+           booking_id: eventId 
+          } 
       })
     });
 
