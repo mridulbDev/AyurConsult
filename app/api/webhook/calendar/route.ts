@@ -22,54 +22,39 @@ export async function POST(req: Request) {
 
     if (response.data.nextSyncToken) await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
 
-    const changedEvents = response.data.items || [];
-
-    for (const event of changedEvents) {
+    for (const event of (response.data.items || [])) {
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let data;
       try { data = JSON.parse(event.description); } catch { continue; }
 
-      // 🛑 THE RESET GATEKEEPER
-      // If the update was triggered by our own routes (USER, SYSTEM, or DOCTOR update logic)
-      if (['USER', 'DOCTOR', 'SYSTEM_CONFIRM'].includes(data.lastUpdatedBy)) {
-        console.log(`Resetting flag for ${data.name} to allow future manual moves.`);
-        
-        // We patch the event to remove the flag. This update will trigger the webhook AGAIN,
-        // but next time it will fall through to the manual move logic if the time is different.
+      // Reset Gatekeeper: ignore updates triggered by our own system logic
+      if (['USER', 'DOCTOR', 'SYSTEM'].includes(data.lastUpdatedBy)) {
         await calendar.events.patch({
           calendarId: CALENDAR_ID,
           eventId: event.id!,
-          requestBody: { 
-            description: JSON.stringify({ ...data, lastUpdatedBy: 'EXTERNAL' }) 
-          }
+          requestBody: { description: JSON.stringify({ ...data, lastUpdatedBy: 'EXTERNAL' }) }
         });
         continue; 
       }
 
       const currentStart = event.start?.dateTime;
-      if (!currentStart) continue;
+      if (!currentStart || data.lastNotifiedTime === currentStart) continue;
 
-      // 🛑 TIME CHECK: If the time hasn't changed, ignore it (even if it's an external update)
-      if (data.lastNotifiedTime === currentStart) continue;
-
-      // ✅ IF WE ARE HERE: The Doctor manually dragged the event to a new time in the UI.
-      
-      // 1. Slot Replacement Logic
-      const listDest = await calendar.events.list({
+      // DOCTOR MANUAL MOVE DETECTED
+      const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: currentStart,
         timeMax: event.end?.dateTime!,
         singleEvents: true
       });
-      const ghost = listDest.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
+      const ghost = overlaps.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
       if (ghost) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id! });
 
       const timeStr = new Date(currentStart).toLocaleString('en-IN', { 
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
       });
       
-      // 2. Update Event: Set flag to DOCTOR to prevent immediate loop, but update the notified time
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
@@ -77,26 +62,26 @@ export async function POST(req: Request) {
           description: JSON.stringify({ 
             ...data, 
             lastNotifiedTime: currentStart, 
-            rescheduled: false, // Reset so patient can move it again from new spot
+            rescheduled: false, 
             lastUpdatedBy: 'DOCTOR' 
           }) 
         }
       });
 
-      // 3. Notifications
+      // Notifications
       const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: data.email,
         subject: `Appointment Update - Dr. Dixit`,
-        html: `<p>Namaste, your session is moved to: <b>${timeStr}</b>. <br>Join Link: ${process.env.NEXT_PUBLIC_MEET_LINK}</p>`
+        html: `<p>Namaste, your session has been moved by the doctor to: <b>${timeStr}</b>.</p>`
       });
 
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       await twilioClient.messages.create({
-        body: `Namaste, your session is moved to ${timeStr}.\n\nMeeting: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
+        body: `Namaste, your appointment is rescheduled by Dr. Dixit to ${timeStr}. Join: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-        to: `whatsapp:+91${data.phone.toString().slice(-10)}`
+        to: `whatsapp:+91${data.mobile.toString().slice(-10)}`
       });
     }
 

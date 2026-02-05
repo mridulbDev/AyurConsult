@@ -5,7 +5,6 @@ import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
 
-// Google Auth Initialization
 const auth = new google.auth.JWT({
   email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
   key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
@@ -15,29 +14,25 @@ const auth = new google.auth.JWT({
 const calendar = google.calendar({ version: 'v3', auth });
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
 
-/**
- * GET: Fetches available slots for a specific date
- * or fetches details of an existing booking for rescheduling.
- */
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
     const bookingId = searchParams.get('bookingId');
 
-    // Scenario A: Fetching details for Reschedule Page
     if (bookingId) {
       const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
-      return Response.json({ details: JSON.parse(event.data.description || '{}') });
+      let details = {};
+      try { details = JSON.parse(event.data.description || '{}'); } catch (e) { details = {}; }
+      return Response.json({ details, summary: event.data.summary, start: event.data.start });
     }
 
-    // Scenario B: Fetching available slots for a date
     if (!date) return Response.json({ slots: [] });
 
     const response = await calendar.events.list({
       calendarId: CALENDAR_ID,
-      timeMin: `${date}T00:00:00+05:30`,
-      timeMax: `${date}T23:59:59+05:30`,
+      timeMin: `${date}T00:00:00Z`,
+      timeMax: `${date}T23:59:59Z`,
       singleEvents: true,
       orderBy: 'startTime',
     });
@@ -48,15 +43,14 @@ export async function GET(req: Request) {
     const availableItems: any[] = [];
 
     for (const ev of allItems) {
-      if (ev.summary?.startsWith('CONFIRMED')) {
+      if (ev.summary?.includes('CONFIRMED')) {
         bookedTimes.add(ev.start?.dateTime);
-      } else if (ev.summary?.startsWith('PENDING')) {
+      } else if (ev.summary?.includes('PENDING')) {
         try {
           const data = JSON.parse(ev.description || '{}');
           const elapsed = now - (data.pendingAt || 0);
-          
-          // Workflow Step 1: If payment not completed within 10 mins, revert to Available
-          if (elapsed > 600000) { 
+          // Workflow: If payment not confirmed within 5 mins, revert to Available
+          if (elapsed > 300000) { 
             await calendar.events.patch({
               calendarId: CALENDAR_ID,
               eventId: ev.id!,
@@ -74,51 +68,38 @@ export async function GET(req: Request) {
       }
     }
 
-    // Filter out available slots that overlap with confirmed/pending bookings
     const processedSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
     return Response.json({ slots: processedSlots });
   } catch (error: any) {
-    console.error("GET Consultation Error:", error.message);
     return Response.json({ slots: [], error: error.message }, { status: 500 });
   }
 }
 
-/**
- * POST: Handles Initial Booking (Razorpay Order creation)
- * and Rescheduling (Atomic move & notification).
- */
 export async function POST(req: Request) {
   try {
     const { eventId, patientData, rescheduleId } = await req.json();
     const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
-    // --- WORKFLOW: RESCHEDULING ---
     if (rescheduleId) {
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
-      
-      if (oldEvent.data.summary === 'Available' || !oldEvent.data.description) {
-        return Response.json({ error: "Booking not found or already moved." }, { status: 400 });
-      }
-
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       // Workflow Step 3: Prevent multiple patient-initiated reschedules
       if (oldData.rescheduled === true) {
-        return Response.json({ error: "Only one reschedule permitted via link." }, { status: 400 });
+        return Response.json({ error: "Multiple reschedules not permitted." }, { status: 400 });
       }
 
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
 
-      // 1. Revert old slot to Available
+      // 1. Revert old slot
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: rescheduleId,
         requestBody: { summary: 'Available', description: '', location: '' }
       });
 
-      // 2. Step 2: Slot Replacement (Cleanup ghost 'Available' slot at destination)
+      // 2. Clean up "Available" slot at destination to prevent duplicates
       const overlaps = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: start!,
@@ -143,27 +124,23 @@ export async function POST(req: Request) {
         calendarId: CALENDAR_ID,
         eventId: eventId,
         requestBody: { 
-          summary: `CONFIRMED (Rescheduled): ${oldData.name}`, 
+          summary: `CONFIRMED (Rescheduled): ${oldData.firstName} ${oldData.lastName}`, 
           location: meetLink, 
           description: newDesc 
         }
       });
 
-      // 4. Send Reschedule Notifications
       const timeStr = new Date(start!).toLocaleString('en-IN', { 
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
       });
 
-      await sendImmediateNotification(oldData, timeStr, eventId);
-
+      await sendNotifications(oldData, timeStr, "Reschedule Confirmed");
       return Response.json({ success: true });
     }
 
-    // --- WORKFLOW: INITIAL BOOKING ---
-    // 1. Mark Slot as PENDING to hold it during payment
+    // INITIAL BOOKING: Mark as PENDING
     const pendingPayload = JSON.stringify({ 
       ...patientData,
-      eventId: eventId, 
       pendingAt: Date.now(), 
       rescheduled: false, 
       lastUpdatedBy: 'SYSTEM' 
@@ -173,12 +150,11 @@ export async function POST(req: Request) {
       calendarId: CALENDAR_ID, 
       eventId: eventId, 
       requestBody: { 
-        summary: `PENDING: ${patientData.name}`, 
+        summary: `PENDING: ${patientData.firstName}`, 
         description: pendingPayload 
       } 
     });
 
-    // 2. Create Razorpay Order
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
       headers: { 
@@ -186,11 +162,9 @@ export async function POST(req: Request) {
         'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` 
       },
       body: JSON.stringify({ 
-        amount: Number(process.env.RAZORPAY_AMOUNT), 
-        currency: "INR", 
-        notes: {
-           booking_id: eventId 
-          } 
+        amount: Number(process.env.RAZORPAY_AMOUNT) * 100, // Amount in paise
+        currency: "INR",
+        notes: { booking_id: eventId } 
       })
     });
 
@@ -198,50 +172,30 @@ export async function POST(req: Request) {
     return Response.json({ orderId: order.id });
 
   } catch (error: any) {
-    console.error("POST Consultation Error:", error);
     return Response.json({ error: "Server Error" }, { status: 500 });
   }
 }
 
-/**
- * Helper: Send notifications immediately for successful reschedules
- */
-async function sendImmediateNotification(data: any, timeStr: string, eventId: string) {
-  const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
-  const patientPhone = `+91${data.phone.toString().replace(/\D/g, '').slice(-10)}`;
-  const drPhone = `+91${process.env.DOCTOR_PHONE?.replace(/\D/g, '').slice(-10)}`;
+async function sendNotifications(data: any, timeStr: string, subject: string) {
+  const transporter = nodemailer.createTransport({ 
+    service: 'gmail', 
+    auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
+  });
 
-  try {
-    const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
-    
-    // Email Notification
-    if (process.env.EMAIL_PASS) {
-      const transporter = nodemailer.createTransport({ 
-        service: 'gmail', 
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
-      });
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: data.email,
-        subject: `Reschedule Confirmed - ${data.name}`,
-        html: `<p>Namaste, your session is moved to: <b>${timeStr}</b>. <br>Join: <a href="${meetLink}">${meetLink}</a></p>`
-      });
-    }
+  const mailOptions = {
+    from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+    to: data.email,
+    subject: subject,
+    text: `Namaste, your session is confirmed for ${timeStr}. Join: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
+  };
 
-    // WhatsApp Patient
-    await twilioClient.messages.create({
-      body: `Namaste ${data.name}, reschedule successful! 📅 New Time: ${timeStr}. Join: ${meetLink}`,
-      from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-      to: `whatsapp:${patientPhone}`
-    });
-
-    // WhatsApp Doctor
-    await twilioClient.messages.create({
-      body: `🔄 Reschedule Alert: ${data.name} has moved to ${timeStr}.`,
-      from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-      to: `whatsapp:${drPhone}`
-    });
-  } catch (err) {
-    console.error("Notification helper failed:", err);
-  }
+  await transporter.sendMail(mailOptions);
+  
+  // Twilio WhatsApp Logic
+  const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+  await twilioClient.messages.create({
+    body: `Namaste ${data.firstName}, ${subject}! 📅 Time: ${timeStr}. Join: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
+    from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+    to: `whatsapp:+91${data.mobile.toString().slice(-10)}`
+  });
 }
