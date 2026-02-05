@@ -116,8 +116,12 @@ function ConsultationContent() {
           currency: "INR",
           name: "Dr. Dixit Ayurveda",
           description: "Consultation Fee",
+          
       
           order_id: data.orderId,
+          notes: {
+    booking_id: data.orderId
+  },
           handler: function (response: any) {
             setStep(3);
           },
