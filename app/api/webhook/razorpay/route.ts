@@ -10,7 +10,6 @@ export async function POST(req: Request) {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
 
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
-
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
 
     const payload = JSON.parse(body);
@@ -31,11 +30,11 @@ export async function POST(req: Request) {
     const patientData = JSON.parse(event.data.description || '{}');
     const start = event.data.start?.dateTime;
 
-    // STEP 1: Finalize the description and confirm slot
+    // 🛑 CRITICAL: lastUpdatedBy prevents the Calendar Webhook from re-triggering notifications
     const finalDesc = JSON.stringify({
       ...patientData,
       rescheduled: false,
-      lastUpdatedBy: 'SYSTEM',
+      lastUpdatedBy: 'SYSTEM_CONFIRM', 
       lastNotifiedTime: start
     });
 
@@ -49,7 +48,6 @@ export async function POST(req: Request) {
       }
     });
 
-    // Formatting for notifications
     const timeStr = new Date(start!).toLocaleString('en-IN', { 
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
     });
@@ -61,6 +59,7 @@ export async function POST(req: Request) {
       service: 'gmail', 
       auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
     });
+    
     await transporter.sendMail({
       from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
       to: patientData.email,
@@ -81,15 +80,9 @@ export async function POST(req: Request) {
       to: `whatsapp:+91${patientData.phone.toString().slice(-10)}`
     });
 
-    // 3. WhatsApp to Doctor
-    await twilioClient.messages.create({
-      body: `🔔 New Booking Confirmed\n\n👤 Patient: ${patientData.name}\n📅 Time: ${timeStr}\n📝 Symptoms: ${patientData.symptoms}`,
-      from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
-      to: `whatsapp:+91${process.env.DOCTOR_PHONE?.slice(-10)}`
-    });
-
     return new Response('OK', { status: 200 });
   } catch (error) {
-    return new Response('Internal Error', { status: 200 });
+    console.error("Razorpay Webhook Error:", error);
+    return new Response('Error', { status: 200 }); // Always 200 for Razorpay to stop retries
   }
 }

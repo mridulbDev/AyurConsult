@@ -15,35 +15,47 @@ export async function POST(req: Request) {
     const calendar = google.calendar({ version: 'v3', auth });
     const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
     
-    // Skip initial sync verification
     if (req.headers.get('x-goog-resource-state') === 'sync') return new Response('OK', { status: 200 });
 
     const syncToken = await redis.get<string>('google_calendar_sync_token');
-    const response = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      syncToken: syncToken || undefined,
-    });
+    const response = await calendar.events.list({ calendarId: CALENDAR_ID, syncToken: syncToken || undefined });
 
-    // Save token for next incremental sync
     if (response.data.nextSyncToken) await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
 
     const changedEvents = response.data.items || [];
 
     for (const event of changedEvents) {
-      // Only process confirmed events that haven't been deleted
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let data;
       try { data = JSON.parse(event.description); } catch { continue; }
 
+      // 🛑 THE RESET GATEKEEPER
+      // If the update was triggered by our own routes (USER, SYSTEM, or DOCTOR update logic)
+      if (['USER', 'DOCTOR', 'SYSTEM_CONFIRM'].includes(data.lastUpdatedBy)) {
+        console.log(`Resetting flag for ${data.name} to allow future manual moves.`);
+        
+        // We patch the event to remove the flag. This update will trigger the webhook AGAIN,
+        // but next time it will fall through to the manual move logic if the time is different.
+        await calendar.events.patch({
+          calendarId: CALENDAR_ID,
+          eventId: event.id!,
+          requestBody: { 
+            description: JSON.stringify({ ...data, lastUpdatedBy: 'EXTERNAL' }) 
+          }
+        });
+        continue; 
+      }
+
       const currentStart = event.start?.dateTime;
       if (!currentStart) continue;
 
-      // 🛑 LOOP PREVENTION: If time hasn't changed from our last record, ignore this webhook
+      // 🛑 TIME CHECK: If the time hasn't changed, ignore it (even if it's an external update)
       if (data.lastNotifiedTime === currentStart) continue;
 
-      // 🛑 STEP 4: DOCTOR MOVED THE EVENT
-      // Clean up "Available" slot at the new destination
+      // ✅ IF WE ARE HERE: The Doctor manually dragged the event to a new time in the UI.
+      
+      // 1. Slot Replacement Logic
       const listDest = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: currentStart,
@@ -56,10 +68,8 @@ export async function POST(req: Request) {
       const timeStr = new Date(currentStart).toLocaleString('en-IN', { 
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
       });
-      const rescheduleUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
-      const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
-
-      // Update description to lock the state and prevent webhook recursion
+      
+      // 2. Update Event: Set flag to DOCTOR to prevent immediate loop, but update the notified time
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
@@ -67,37 +77,29 @@ export async function POST(req: Request) {
           description: JSON.stringify({ 
             ...data, 
             lastNotifiedTime: currentStart, 
-            rescheduled: false, // Reset flag so patient can reschedule once more after Dr move
+            rescheduled: false, // Reset so patient can move it again from new spot
             lastUpdatedBy: 'DOCTOR' 
           }) 
         }
       });
 
-      // Notify Patient via Email
-      const transporter = nodemailer.createTransport({ 
-        service: 'gmail', 
-        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
-      });
+      // 3. Notifications
+      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: data.email,
-        subject: `Schedule Update - Dr. Dixit Ayurveda`,
-        html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #123025; border-radius: 10px;">
-                <h2>Appointment Moved</h2>
-                <p>Namaste ${data.name}, your session has been updated to: <b>${timeStr}</b></p>
-                <p><a href="${meetLink}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
-                <p style="margin-top:20px; font-size:12px;">Need to change this? <a href="${rescheduleUrl}">Reschedule once more</a></p>
-              </div>`
+        subject: `Appointment Update - Dr. Dixit`,
+        html: `<p>Namaste, your session is moved to: <b>${timeStr}</b>. <br>Join Link: ${process.env.NEXT_PUBLIC_MEET_LINK}</p>`
       });
 
-      // Notify Patient via WhatsApp
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       await twilioClient.messages.create({
-        body: `Namaste ${data.name}, your session is moved to ${timeStr}.\n\nMeeting: ${meetLink}\nReschedule: ${rescheduleUrl}`,
+        body: `Namaste, your session is moved to ${timeStr}.\n\nMeeting: ${process.env.NEXT_PUBLIC_MEET_LINK}`,
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
         to: `whatsapp:+91${data.phone.toString().slice(-10)}`
       });
     }
+
     return new Response('OK', { status: 200 });
   } catch (error: any) {
     if (error.code === 410) await redis.del('google_calendar_sync_token');
