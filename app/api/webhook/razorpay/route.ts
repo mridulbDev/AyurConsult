@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
     //Prepare Links
     const reschedUrl = `${baseUrl}/consultation?reschedule=${bookingId}`;
-    
+    console.log("Preparing Confirmation Email for Booking ID:", bookingId);
     const finalDesc = JSON.stringify({
       ...patientData,
       rescheduled: false,
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
             <a href="${reschedUrl}">${reschedUrl}</a>
           </p>
         </div>
-      `
+      ` 
     });
 
     return new Response('OK');

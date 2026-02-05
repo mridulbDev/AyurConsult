@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     });
 
     for (const event of changes) {
-      if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
+      if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description || event.summary?.startsWith('PENDING')) continue;
 
       let patientData;
       try { patientData = JSON.parse(event.description); } catch { continue; }
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       if (!currentStart) continue;
 
       // IDEMPOTENCY SHIELD: If time matches metadata, the system did this move. IGNORE.
-      if (patientData.lastNotifiedTime === currentStart) continue;
+      if (patientData.lastNotifiedTime === currentStart || patientData.lastUpdatedBy === "system" ) continue;
 
       // DOCTOR MOVE DETECTED: Time changed but metadata still has the old time.
       
@@ -76,9 +76,9 @@ export async function POST(req: Request) {
         }
       });
     }
-    return new Response('OK');
+    return new Response('OK', { status: 200 });
   } catch (error: any) {
     if (error.code === 410) await redis.del('google_calendar_sync_token');
-    return new Response('OK');
+    return new Response('OK', { status: 500 });
   }
 }
