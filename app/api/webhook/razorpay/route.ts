@@ -48,6 +48,7 @@ export async function POST(req: Request) {
         description: finalDesc
       }
     });
+    console.log("Calendar Event Updated, Sending Confirmation Email...");
 
     const timeStr = new Date(start!).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
     const transporter = nodemailer.createTransport({
