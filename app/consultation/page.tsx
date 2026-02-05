@@ -8,7 +8,7 @@ import Script from 'next/script';
 function ConsultationContent() {
   const { lang } = useLanguage();
   const searchParams = useSearchParams();
-  const rescheduleId = searchParams.get('reschedule');
+  const rescheduleId = searchParams.get('reschedule') || null;
 
   // --- LOGIC STATES ---
   const [step, setStep] = useState(1);
@@ -92,7 +92,7 @@ function ConsultationContent() {
         body: JSON.stringify({ 
           eventId: selectedSlot.id, 
           patientData: formData, 
-          rescheduleId 
+          rescheduleId
         })
       });
 

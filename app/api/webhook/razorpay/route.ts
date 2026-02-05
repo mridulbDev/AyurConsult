@@ -12,6 +12,7 @@ const getAuth = () => {
     scopes: SCOPES,
   });
 };
+console.log("Razorpay Webhook Initialized with Calendar ID:", CALENDAR_ID);
 
 export async function POST(req: Request) {
   try {
@@ -28,6 +29,7 @@ export async function POST(req: Request) {
 
     // 2. Extract Booking ID
     const bookingId = payload.payload.payment.entity.notes?.booking_id
+    console.log("Razorpay Webhook Received for Booking ID:", bookingId);
     if (!bookingId) return new Response('No Booking ID', { status: 200 });
 
     const calendar = google.calendar({ version: 'v3', auth: getAuth() });
