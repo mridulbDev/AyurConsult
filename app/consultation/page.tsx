@@ -8,7 +8,7 @@ import Script from 'next/script';
 function ConsultationContent() {
   const { lang } = useLanguage();
   const searchParams = useSearchParams();
-  const rescheduleId = searchParams.get('reschedule') || null;
+  const rescheduleId = searchParams.get('reschedule')?searchParams.get('reschedule'):null;
 
   // --- LOGIC STATES ---
   const [step, setStep] = useState(1);
