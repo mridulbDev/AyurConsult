@@ -9,15 +9,17 @@ export async function POST(req: Request) {
     const signature = req.headers.get('x-razorpay-signature');
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
-
+    const data = JSON.parse(body);
+const notes = data.payload.payment?.entity?.notes || data.payload.order?.entity?.notes;
+    const bookingId = notes?.booking_id;
+    
+    console.log("Razor Pay Processing Booking ID:", bookingId);
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
     console.log("Razorpay Signature Verified");
-    const data = JSON.parse(body);
-    if (data.event !== 'payment.captured' ||  data.event !== 'order.paid') return new Response('OK');
+    
+    if (data.event !== 'payment.captured' &&  data.event !== 'order.paid') return new Response('OK');
 
-    const notes = data.payload.payment?.entity?.notes || data.payload.order?.entity?.notes;
-    const bookingId = notes?.booking_id;
-    console.log("Razor Pay Processing Booking ID:", bookingId);
+    
     const auth = new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
       key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
