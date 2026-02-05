@@ -18,7 +18,7 @@ const bookingId = payment.notes?.booking_id;
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
     console.log("Razorpay Signature Verified");
 
-    console.log("Event Type:", data.entity);
+    console.log("Event Type:", data.entity.event);
     if (data.event !== 'payment.captured' ) return new Response('OK');
 
     
