@@ -85,7 +85,7 @@ export async function POST(req: Request) {
         subject: `Reschedule Successful`,
         html: `<p>New Time: <b>${new Date(start!).toLocaleString('en-IN')}</b></p>`
 
-        
+
       });
 
       return Response.json({ success: true });
@@ -96,8 +96,8 @@ export async function POST(req: Request) {
 
     const rzp = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` },
-      body: JSON.stringify({ amount: Number(process.env.RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${Buffer.from(`${process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` },
+      body: JSON.stringify({ amount: Number(process.env.NEXT_PUBLIC_RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
     });
     const order = await rzp.json();
     console.log("Razorpay Order Created:");
