@@ -18,8 +18,7 @@ const bookingId = payment.notes?.booking_id;
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
     console.log("Razorpay Signature Verified");
     
-    if (data.event !== 'payment.captured' ) return new Response('OK');
-
+    if (data.event === 'payment.captured' || data.event === 'order.paid') {
     
     const auth = new google.auth.JWT({
       email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
@@ -31,7 +30,9 @@ const bookingId = payment.notes?.booking_id;
 
     const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
     const patientData = JSON.parse(event.data.description || '{}');
+   
     const start = event.data.start?.dateTime;
+     console.log(patientData.email, patientData.name,start);
     const meetLink = process.env.NEXT_PUBLIC_MEET_LINK!;
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
     //Prepare Links
@@ -91,7 +92,8 @@ const bookingId = payment.notes?.booking_id;
         </div>
       ` 
     });
+    return new Response('OK')};
 
-    return new Response('OK');
+;
   } catch (error) { return new Response('Error', { status: 500 }); }
 }

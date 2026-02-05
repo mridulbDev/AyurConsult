@@ -84,6 +84,8 @@ export async function POST(req: Request) {
         to: patientData.email,
         subject: `Reschedule Successful`,
         html: `<p>New Time: <b>${new Date(start!).toLocaleString('en-IN')}</b></p>`
+
+        
       });
 
       return Response.json({ success: true });
