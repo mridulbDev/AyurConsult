@@ -1,32 +1,30 @@
 import { google } from 'googleapis';
-import crypto from 'crypto';
+
 import twilio from 'twilio';
 import nodemailer from 'nodemailer';
+import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils';
+
 
 export async function POST(req: Request) {
   try {
-    const body = await req.text();
+    const rawBody = await req.text();
     const signature = req.headers.get('x-razorpay-signature');
-    
-    // 1. Validate Secret exists
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    if (!secret) {
-      console.error("RAZORPAY_WEBHOOK_SECRET is missing");
-      return new Response('Config Error', { status: 500 });
+
+    if (!signature || !secret) {
+      return new Response('Missing signature or secret', { status: 400 });
     }
 
-    // 2. Signature Verification
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(body)
-      .digest('hex');
+    // 2. Validate signature using Razorpay's official utility
+    const isValid = validateWebhookSignature(rawBody, signature, secret);
 
-    if (signature !== expectedSignature) {
+    if (!isValid) {
       console.error("Invalid Razorpay Signature");
       return new Response('Unauthorized', { status: 400 });
     }
 
-    const payload = JSON.parse(body);
+    // 3. Parse data only AFTER verification
+    const payload = JSON.parse(rawBody);
     
     // 3. Handle specific event
     if (payload.event !== 'payment.captured') {
