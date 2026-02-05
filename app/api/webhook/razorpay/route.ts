@@ -10,9 +10,10 @@ export async function POST(req: Request) {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
     const data = JSON.parse(body);
-const notes = data.payload.payment?.entity?.notes || data.payload.order?.entity?.notes;
-    const bookingId = notes?.booking_id;
-    
+    const payment = data.payload.payment.entity;
+
+const bookingId = payment.notes?.booking_id;
+
     console.log("Razor Pay Processing Booking ID:", bookingId);
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
     console.log("Razorpay Signature Verified");
