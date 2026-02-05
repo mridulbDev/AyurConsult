@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     if (payload.event !== 'payment.captured') return new Response('OK', { status: 200 });
 
     // 2. Extract Booking ID
-    const bookingId = payload.payload.payment.entity.notes?.booking_id;
+    const bookingId = payload.payload.payment.entity.notes?.booking_id
     if (!bookingId) return new Response('No Booking ID', { status: 200 });
 
     const calendar = google.calendar({ version: 'v3', auth: getAuth() });

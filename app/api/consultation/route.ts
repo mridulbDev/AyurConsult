@@ -115,7 +115,7 @@ export async function GET(req: Request) {
     }
 
     // Strict filtering: Remove available slots that share a start time with a booked/pending slot
-    const processedSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
+    const processedSlots = availableItems;
     
     return Response.json({ slots: processedSlots });
 
