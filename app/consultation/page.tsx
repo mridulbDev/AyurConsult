@@ -120,7 +120,7 @@ function ConsultationContent() {
       
           order_id: data.orderId,
           notes: {
-    booking_id: data.orderId
+    booking_id: selectedSlot
   },
           handler: function (response: any) {
             setStep(3);
