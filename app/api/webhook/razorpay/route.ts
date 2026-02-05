@@ -11,13 +11,14 @@ export async function POST(req: Request) {
     const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
     const data = JSON.parse(body);
     const payment = data.payload.payment.entity;
-    console.log(data)
+    console.log(data);
 const bookingId = payment.notes?.booking_id;
 
     console.log("Razor Pay Processing Booking ID:", bookingId);
     if (signature !== expectedSignature) return new Response('Unauthorized', { status: 400 });
     console.log("Razorpay Signature Verified");
-    
+
+    console.log("Event Type:", data.entity);
     if (data.event !== 'payment.captured' ) return new Response('OK');
 
     
