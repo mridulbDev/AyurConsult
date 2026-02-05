@@ -4,25 +4,34 @@ import nodemailer from 'nodemailer';
 import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
+
+// Google Auth Initialization
 const auth = new google.auth.JWT({
   email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
   key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
   scopes: ['https://www.googleapis.com/auth/calendar'],
 });
+
 const calendar = google.calendar({ version: 'v3', auth });
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
 
+/**
+ * GET: Fetches available slots for a specific date
+ * or fetches details of an existing booking for rescheduling.
+ */
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const date = searchParams.get('date');
     const bookingId = searchParams.get('bookingId');
 
+    // Scenario A: Fetching details for Reschedule Page
     if (bookingId) {
       const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
       return Response.json({ details: JSON.parse(event.data.description || '{}') });
     }
 
+    // Scenario B: Fetching available slots for a date
     if (!date) return Response.json({ slots: [] });
 
     const response = await calendar.events.list({
@@ -30,79 +39,206 @@ export async function GET(req: Request) {
       timeMin: `${date}T00:00:00+05:30`,
       timeMax: `${date}T23:59:59+05:30`,
       singleEvents: true,
+      orderBy: 'startTime',
     });
 
-    const items = response.data.items || [];
+    const allItems = response.data.items || [];
     const now = Date.now();
-    
-    // Process Pending/Available logic
-    const available = items.filter(ev => {
-      if (ev.summary === 'Available') return true;
-      if (ev.summary?.startsWith('PENDING')) {
-        const data = JSON.parse(ev.description || '{}');
-        if (now - (data.pendingAt || 0) > 600000) {
-           calendar.events.patch({ calendarId: CALENDAR_ID, eventId: ev.id!, requestBody: { summary: 'Available', description: '', location: '' } });
-           return true;
-        }
-      }
-      return false;
-    });
+    const bookedTimes = new Set();
+    const availableItems: any[] = [];
 
-    return Response.json({ slots: available });
-  } catch (error) { return Response.json({ slots: [] }, { status: 500 }); }
+    for (const ev of allItems) {
+      if (ev.summary?.startsWith('CONFIRMED')) {
+        bookedTimes.add(ev.start?.dateTime);
+      } else if (ev.summary?.startsWith('PENDING')) {
+        try {
+          const data = JSON.parse(ev.description || '{}');
+          const elapsed = now - (data.pendingAt || 0);
+          
+          // Workflow Step 1: If payment not completed within 10 mins, revert to Available
+          if (elapsed > 600000) { 
+            await calendar.events.patch({
+              calendarId: CALENDAR_ID,
+              eventId: ev.id!,
+              requestBody: { summary: 'Available', description: '', location: '' }
+            });
+            availableItems.push(ev);
+          } else {
+            bookedTimes.add(ev.start?.dateTime);
+          }
+        } catch (e) {
+          bookedTimes.add(ev.start?.dateTime);
+        }
+      } else if (ev.summary === 'Available') {
+        availableItems.push(ev);
+      }
+    }
+
+    // Filter out available slots that overlap with confirmed/pending bookings
+    const processedSlots = availableItems.filter(ev => !bookedTimes.has(ev.start?.dateTime));
+    return Response.json({ slots: processedSlots });
+  } catch (error: any) {
+    console.error("GET Consultation Error:", error.message);
+    return Response.json({ slots: [], error: error.message }, { status: 500 });
+  }
 }
 
+/**
+ * POST: Handles Initial Booking (Razorpay Order creation)
+ * and Rescheduling (Atomic move & notification).
+ */
 export async function POST(req: Request) {
   try {
     const { eventId, patientData, rescheduleId } = await req.json();
+    const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
+    // --- WORKFLOW: RESCHEDULING ---
     if (rescheduleId) {
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
+      
+      if (oldEvent.data.summary === 'Available' || !oldEvent.data.description) {
+        return Response.json({ error: "Booking not found or already moved." }, { status: 400 });
+      }
+
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
-      // 🛑 STEP 3: LIMIT RESCHEDULE
+      // Workflow Step 3: Prevent multiple patient-initiated reschedules
       if (oldData.rescheduled === true) {
-        return Response.json({ error: "Only one reschedule permitted." }, { status: 400 });
+        return Response.json({ error: "Only one reschedule permitted via link." }, { status: 400 });
       }
 
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
 
-      // 1. Make old slot available
+      // 1. Revert old slot to Available
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: rescheduleId,
         requestBody: { summary: 'Available', description: '', location: '' }
       });
 
-      // 2. Clean up "Available" ghost at new slot
-      const overlaps = await calendar.events.list({ calendarId: CALENDAR_ID, timeMin: start!, timeMax: newSlot.data.end?.dateTime!, singleEvents: true });
+      // 2. Step 2: Slot Replacement (Cleanup ghost 'Available' slot at destination)
+      const overlaps = await calendar.events.list({
+        calendarId: CALENDAR_ID,
+        timeMin: start!,
+        timeMax: newSlot.data.end?.dateTime!,
+        singleEvents: true
+      });
       for (const ev of (overlaps.data.items || [])) {
-        if (ev.id !== eventId && ev.summary === 'Available') await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
+        if (ev.id !== eventId && ev.summary === 'Available') {
+          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ev.id! });
+        }
       }
 
-      // 3. Confirm new slot
-      const newDesc = JSON.stringify({ ...oldData, rescheduled: true, lastUpdatedBy: 'USER', lastNotifiedTime: start });
+      // 3. Confirm New Slot
+      const newDesc = JSON.stringify({ 
+        ...oldData, 
+        rescheduled: true, 
+        lastUpdatedBy: 'USER',
+        lastNotifiedTime: start 
+      });
+
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: eventId,
-        requestBody: { summary: `CONFIRMED: ${oldData.name}`, location: process.env.NEXT_PUBLIC_MEET_LINK, description: newDesc }
+        requestBody: { 
+          summary: `CONFIRMED (Rescheduled): ${oldData.name}`, 
+          location: meetLink, 
+          description: newDesc 
+        }
       });
 
-      // Notifications...
+      // 4. Send Reschedule Notifications
+      const timeStr = new Date(start!).toLocaleString('en-IN', { 
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
+      });
+
+      await sendImmediateNotification(oldData, timeStr, eventId);
+
       return Response.json({ success: true });
     }
 
-    // Normal Booking Flow
-    const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'SYSTEM' });
-    await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
+    // --- WORKFLOW: INITIAL BOOKING ---
+    // 1. Mark Slot as PENDING to hold it during payment
+    const pendingPayload = JSON.stringify({ 
+      ...patientData, 
+      pendingAt: Date.now(), 
+      rescheduled: false, 
+      lastUpdatedBy: 'SYSTEM' 
+    });
 
+    await calendar.events.patch({ 
+      calendarId: CALENDAR_ID, 
+      eventId: eventId, 
+      requestBody: { 
+        summary: `PENDING: ${patientData.name}`, 
+        description: pendingPayload 
+      } 
+    });
+
+    // 2. Create Razorpay Order
     const razorpayRes = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` },
-      body: JSON.stringify({ amount: Number(process.env.RAZORPAY_AMOUNT), currency: "INR", notes: { booking_id: eventId } })
+      headers: { 
+        'Content-Type': 'application/json', 
+        'Authorization': `Basic ${Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString('base64')}` 
+      },
+      body: JSON.stringify({ 
+        amount: Number(process.env.RAZORPAY_AMOUNT), 
+        currency: "INR", 
+        notes: { booking_id: eventId } 
+      })
     });
+
     const order = await razorpayRes.json();
     return Response.json({ orderId: order.id });
-  } catch (error) { return Response.json({ error: "Failed" }, { status: 500 }); }
+
+  } catch (error: any) {
+    console.error("POST Consultation Error:", error);
+    return Response.json({ error: "Server Error" }, { status: 500 });
+  }
+}
+
+/**
+ * Helper: Send notifications immediately for successful reschedules
+ */
+async function sendImmediateNotification(data: any, timeStr: string, eventId: string) {
+  const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
+  const patientPhone = `+91${data.phone.toString().replace(/\D/g, '').slice(-10)}`;
+  const drPhone = `+91${process.env.DOCTOR_PHONE?.replace(/\D/g, '').slice(-10)}`;
+
+  try {
+    const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+    
+    // Email Notification
+    if (process.env.EMAIL_PASS) {
+      const transporter = nodemailer.createTransport({ 
+        service: 'gmail', 
+        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
+      });
+      await transporter.sendMail({
+        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+        to: data.email,
+        subject: `Reschedule Confirmed - ${data.name}`,
+        html: `<p>Namaste, your session is moved to: <b>${timeStr}</b>. <br>Join: <a href="${meetLink}">${meetLink}</a></p>`
+      });
+    }
+
+    // WhatsApp Patient
+    await twilioClient.messages.create({
+      body: `Namaste ${data.name}, reschedule successful! 📅 New Time: ${timeStr}. Join: ${meetLink}`,
+      from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+      to: `whatsapp:${patientPhone}`
+    });
+
+    // WhatsApp Doctor
+    await twilioClient.messages.create({
+      body: `🔄 Reschedule Alert: ${data.name} has moved to ${timeStr}.`,
+      from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+      to: `whatsapp:${drPhone}`
+    });
+  } catch (err) {
+    console.error("Notification helper failed:", err);
+  }
 }

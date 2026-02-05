@@ -15,6 +15,7 @@ export async function POST(req: Request) {
     const calendar = google.calendar({ version: 'v3', auth });
     const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
     
+    // Skip initial sync verification
     if (req.headers.get('x-goog-resource-state') === 'sync') return new Response('OK', { status: 200 });
 
     const syncToken = await redis.get<string>('google_calendar_sync_token');
@@ -23,11 +24,13 @@ export async function POST(req: Request) {
       syncToken: syncToken || undefined,
     });
 
+    // Save token for next incremental sync
     if (response.data.nextSyncToken) await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
 
     const changedEvents = response.data.items || [];
 
     for (const event of changedEvents) {
+      // Only process confirmed events that haven't been deleted
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description) continue;
 
       let data;
@@ -36,12 +39,11 @@ export async function POST(req: Request) {
       const currentStart = event.start?.dateTime;
       if (!currentStart) continue;
 
-      // 🛑 LOOP PREVENTION
-      // If the system just updated this event, or the time hasn't actually changed, ABORT.
+      // 🛑 LOOP PREVENTION: If time hasn't changed from our last record, ignore this webhook
       if (data.lastNotifiedTime === currentStart) continue;
 
-      // 🛑 ACTION: DOCTOR MOVED THE EVENT
-      // 1. Clean up "Available" slot at the new destination to prevent overlaps
+      // 🛑 STEP 4: DOCTOR MOVED THE EVENT
+      // Clean up "Available" slot at the new destination
       const listDest = await calendar.events.list({
         calendarId: CALENDAR_ID,
         timeMin: currentStart,
@@ -51,12 +53,13 @@ export async function POST(req: Request) {
       const ghost = listDest.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
       if (ghost) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id! });
 
-      // 2. Prepare Notification Data
-      const timeStr = new Date(currentStart).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+      const timeStr = new Date(currentStart).toLocaleString('en-IN', { 
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' 
+      });
       const rescheduleUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
       const meetLink = process.env.NEXT_PUBLIC_MEET_LINK;
 
-      // 3. Update Calendar FIRST to lock the state and prevent webhook recursion
+      // Update description to lock the state and prevent webhook recursion
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: event.id!,
@@ -64,24 +67,33 @@ export async function POST(req: Request) {
           description: JSON.stringify({ 
             ...data, 
             lastNotifiedTime: currentStart, 
-            rescheduled: false, // Reset so patient can reschedule once more from new time
+            rescheduled: false, // Reset flag so patient can reschedule once more after Dr move
             lastUpdatedBy: 'DOCTOR' 
           }) 
         }
       });
 
-      // 4. Send Notifications
-      const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
+      // Notify Patient via Email
+      const transporter = nodemailer.createTransport({ 
+        service: 'gmail', 
+        auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } 
+      });
       await transporter.sendMail({
         from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
         to: data.email,
-        subject: `Appointment Update - Dr. Dixit`,
-        html: `<p>Namaste, your session is moved to: <b>${timeStr}</b>. <br>Join Link: ${meetLink} <br>Need to change? <a href="${rescheduleUrl}">Reschedule here</a></p>`
+        subject: `Schedule Update - Dr. Dixit Ayurveda`,
+        html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #123025; border-radius: 10px;">
+                <h2>Appointment Moved</h2>
+                <p>Namaste ${data.name}, your session has been updated to: <b>${timeStr}</b></p>
+                <p><a href="${meetLink}" style="background:#123025; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Join Meeting</a></p>
+                <p style="margin-top:20px; font-size:12px;">Need to change this? <a href="${rescheduleUrl}">Reschedule once more</a></p>
+              </div>`
       });
 
+      // Notify Patient via WhatsApp
       const twilioClient = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
       await twilioClient.messages.create({
-        body: `Namaste, your session is moved to ${timeStr}.\nLink: ${meetLink}\nReschedule: ${rescheduleUrl}`,
+        body: `Namaste ${data.name}, your session is moved to ${timeStr}.\n\nMeeting: ${meetLink}\nReschedule: ${rescheduleUrl}`,
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
         to: `whatsapp:+91${data.phone.toString().slice(-10)}`
       });
@@ -89,6 +101,6 @@ export async function POST(req: Request) {
     return new Response('OK', { status: 200 });
   } catch (error: any) {
     if (error.code === 410) await redis.del('google_calendar_sync_token');
-    return new Response('Error', { status: 200 });
+    return new Response('OK', { status: 200 });
   }
 }
