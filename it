@@ -1,0 +1,60 @@
+[33mcommit 64e8d80733043d78e33e60876f5ada92c38c9ccc[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: mridulbDev <mridulb.dev@gmail.com>
+Date:   Sat Feb 7 02:37:05 2026 +0530
+
+    finalised
+
+[1mdiff --git a/app/api/consultation/route.ts b/app/api/consultation/route.ts[m
+[1mindex f4c7efe..7b1c5d8 100644[m
+[1m--- a/app/api/consultation/route.ts[m
+[1m+++ b/app/api/consultation/route.ts[m
+[36m@@ -17,24 +17,24 @@[m [mexport async function GET(req: Request) {[m
+     const date = searchParams.get('date');[m
+     const bookingId = searchParams.get('bookingId');[m
+ [m
+[31m-    if (bookingId) {[m
+[31m-      const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });[m
+[31m-      if (event.data.summary === 'Available') {[m
+[31m-        return Response.json([m
+[31m-          { error: "This link has already been used or has expired." }, [m
+[31m-          { status: 410 } [m
+[31m-        );[m
+[31m-      }[m
+[32m+[m[32m      if (bookingId) {[m
+[32m+[m[32m        const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });[m
+[32m+[m[32m        if (event.data.summary === 'Available') {[m
+[32m+[m[32m          return Response.json([m
+[32m+[m[32m            { error: "This link has already been used or has expired." },[m[41m [m
+[32m+[m[32m            { status: 410 }[m[41m [m
+[32m+[m[32m          );[m
+[32m+[m[32m        }[m
+ [m
+[31m-      const details = JSON.parse(event.data.description || '{}');[m
+[32m+[m[32m        const details = JSON.parse(event.data.description || '{}');[m
+ [m
+[31m-      //  THE SEAL: If metadata says already rescheduled[m
+[31m-      if (details.rescheduled === true) {[m
+[31m-        return Response.json([m
+[31m-          { error: "One-time reschedule limit reached for this booking." }, [m
+[31m-          { status: 403 }[m
+[31m-        );[m
+[31m-      }[m
+[32m+[m[32m        //  THE SEAL: If metadata says already rescheduled[m
+[32m+[m[32m        if (details.rescheduled === true) {[m
+[32m+[m[32m          return Response.json([m
+[32m+[m[32m            { error: "One-time reschedule limit reached for this booking." },[m[41m [m
+[32m+[m[32m            { status: 403 }[m
+[32m+[m[32m          );[m
+[32m+[m[32m        }[m
+         [m
+       return Response.json({ details: JSON.parse(event.data.description || '{}') });[m
+     }[m
+[36m@@ -94,7 +94,7 @@[m [mexport async function POST(req: Request) {[m
+ [m
+   // If the doctor moved the event or it's a second-gen move, [m
+   // the flag will be here.[m
+[31m-  if (oldData.data.rescheduled === true) {[m
+[32m+[m[32m  if (oldData.rescheduled === true) {[m
+     return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });[m
+   }[m
+       await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });[m
