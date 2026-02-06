@@ -17,6 +17,7 @@ function ConsultationContent() {
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', age: '', history: '', symptoms: '' });
+ 
 
   // --- VALIDATION LOGIC ---
   const isEmailValid = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -45,8 +46,19 @@ function ConsultationContent() {
       try {
         const res = await fetch(`/api/consultation?bookingId=${rescheduleId}`);
         const data = await res.json();
+        if (!res.ok) {
+        //  Link is used or limit reached
+        alert(data.error || "Invalid Reschedule Link");
+        window.location.href = '/consultation'; // Redirect to fresh booking
+        return;
+      }
         
         if (data.details) {
+          if (data.details.rescheduled === true) {
+          alert("One-time reschedule limit reached.");
+          window.location.href = '/consultation';
+          return;
+        }
           const prev = data.details;
           setFormData({
             name: prev.name || '',
@@ -60,6 +72,9 @@ function ConsultationContent() {
       } catch (e) {
         console.error("Failed to fetch previous booking data:", e);
       }
+      finally {
+     
+    }
     }
     fetchOldBookingDetails();
   }, [rescheduleId]);
@@ -106,7 +121,7 @@ function ConsultationContent() {
       }
 
       if (rescheduleId) {
-        setSelectedSlot({ ...selectedSlot, id: data.newBookingId });
+        
         setStep(3);
       } else {
         // Normal Flow: Open Razorpay

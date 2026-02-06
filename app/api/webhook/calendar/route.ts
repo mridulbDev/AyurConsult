@@ -15,6 +15,7 @@ export async function POST(req: Request) {
     const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID!;
 
     if (req.headers.get('x-goog-resource-state') === 'sync') return new Response('OK');
+    if (req.headers.get('x-goog-resource-state') === 'not_exists') return new Response('OK');
 
     const syncToken = await redis.get<string>('google_calendar_sync_token');
     const response = await calendar.events.list({ 
