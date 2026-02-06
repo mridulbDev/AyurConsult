@@ -22,6 +22,7 @@ export async function POST(req: Request) {
       calendarId: CALENDAR_ID, 
       syncToken: syncToken ?? undefined 
     });
+    console.log("Google Calendar Webhook Hit - Processing Changes...");
 
     if (response.data.nextSyncToken) {
       await redis.set('google_calendar_sync_token', response.data.nextSyncToken);
@@ -55,14 +56,15 @@ export async function POST(req: Request) {
     });
 
     for (const event of changes) {
-      if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description || event.summary?.startsWith('PENDING')) continue;
-
+      if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description || event.summary?.startsWith('PENDING')){console.log("Processing Event:", event.summary);continue; }
+      
       let patientData;
-  try { patientData = JSON.parse(event.description); } catch { continue; }
+  try { patientData = JSON.parse(event.description || '{}'); } catch { continue; }
 
   const currentStart = event.start?.dateTime;
-  if (!currentStart) continue;
+  if (!currentStart) {console.log("Invalid start time for event:", event.summary); continue; }
   if (patientData.lastUpdatedBy === "user" && patientData.lastNotifiedTime === currentStart) {
+    console.log("Skipping user-initiated update for event:", patientData.lastUpdatedBy, patientData.lastNotifiedTime);
     continue; 
   }
 
@@ -74,6 +76,7 @@ export async function POST(req: Request) {
     patientData.lastUpdatedBy === "system" || 
     patientData.lastUpdatedBy === "user"
   ) {
+    console.log("Skipping update for event (already notified or system/user update):", patientData.lastUpdatedBy);
     continue; 
   }
 
