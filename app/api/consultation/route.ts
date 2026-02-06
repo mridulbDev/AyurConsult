@@ -17,24 +17,24 @@ export async function GET(req: Request) {
     const date = searchParams.get('date');
     const bookingId = searchParams.get('bookingId');
 
-    if (bookingId) {
-      const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
-      if (event.data.summary === 'Available') {
-        return Response.json(
-          { error: "This link has already been used or has expired." }, 
-          { status: 410 } 
-        );
-      }
+      if (bookingId) {
+        const event = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: bookingId });
+        if (event.data.summary === 'Available') {
+          return Response.json(
+            { error: "This link has already been used or has expired." }, 
+            { status: 410 } 
+          );
+        }
 
-      const details = JSON.parse(event.data.description || '{}');
+        const details = JSON.parse(event.data.description || '{}');
 
-      //  THE SEAL: If metadata says already rescheduled
-      if (details.rescheduled === true) {
-        return Response.json(
-          { error: "One-time reschedule limit reached for this booking." }, 
-          { status: 403 }
-        );
-      }
+        //  THE SEAL: If metadata says already rescheduled
+        if (details.rescheduled === true) {
+          return Response.json(
+            { error: "One-time reschedule limit reached for this booking." }, 
+            { status: 403 }
+          );
+        }
         
       return Response.json({ details: JSON.parse(event.data.description || '{}') });
     }
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
 
   // If the doctor moved the event or it's a second-gen move, 
   // the flag will be here.
-  if (oldData.data.rescheduled === true) {
+  if (oldData.rescheduled === true) {
     return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
   }
       await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
