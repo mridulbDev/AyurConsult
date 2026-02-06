@@ -63,23 +63,13 @@ export async function POST(req: Request) {
 
   const currentStart = event.start?.dateTime;
   if (!currentStart) {console.log("Invalid start time for event:", event.summary); continue; }
-  if (patientData.lastUpdatedBy === "user" && patientData.lastNotifiedTime === currentStart) {
-    console.log("Skipping user-initiated update for event:", patientData.lastUpdatedBy, patientData.lastNotifiedTime);
-    continue; 
-  }
-
-  // --- THE ONLY CHECK YOU NEED ---
-  // If the time in the calendar matches our "lastNotifiedTime", 
-  // OR if the tag is 'system'/'user', we EXIT. We do nothing.
-  if (
-    patientData.lastNotifiedTime === currentStart || 
-    patientData.lastUpdatedBy === "system" || 
-    patientData.lastUpdatedBy === "user"
-  ) {
-    console.log("Skipping update for event (already notified or system/user update):", patientData.lastUpdatedBy);
-    continue; 
-  }
-
+ 
+  if (patientData.lastNotifiedTime === currentStart) {
+    if (patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user") {
+        console.log("Skipping: Time hasn't changed and last update was non-doctor.");
+        continue;
+    }
+}    
   // If we reached here, it MUST be a manual Doctor drag/drop.
   
   // 1. Cleanup destination
