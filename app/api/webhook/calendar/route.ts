@@ -27,6 +27,27 @@ export async function POST(req: Request) {
     }
 
     const changes = response.data.items || [];
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const lastCleanup = await redis.get(`last_cleanup_${todayStr}`);
+
+    if (!lastCleanup) {
+      console.log("Running Daily Sweep: Cleaning up past Available slots...");
+      const pastSlots = await calendar.events.list({
+        calendarId: CALENDAR_ID,
+        timeMin: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+        timeMax: now.toISOString(), // Up to right now
+        singleEvents: true,
+      });
+
+      for (const slot of (pastSlots.data.items || [])) {
+        if (slot.summary === 'Available' || slot.summary?.startsWith('PENDING')) {
+          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
+        }
+      }
+      // Mark as done for today so we don't repeat this for every single webhook hit
+      await redis.set(`last_cleanup_${todayStr}`, 'done', { ex: 86400 }); 
+    }
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }
@@ -36,45 +57,59 @@ export async function POST(req: Request) {
       if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description || event.summary?.startsWith('PENDING')) continue;
 
       let patientData;
-      try { patientData = JSON.parse(event.description); } catch { continue; }
+  try { patientData = JSON.parse(event.description); } catch { continue; }
 
-      const currentStart = event.start?.dateTime;
-      if (!currentStart) continue;
+  const currentStart = event.start?.dateTime;
+  if (!currentStart) continue;
 
-      // IDEMPOTENCY SHIELD: If time matches metadata, the system did this move. IGNORE.
-      if (patientData.lastNotifiedTime === currentStart || patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user" ) continue;
+  // --- THE ONLY CHECK YOU NEED ---
+  // If the time in the calendar matches our "lastNotifiedTime", 
+  // OR if the tag is 'system'/'user', we EXIT. We do nothing.
+  if (
+    patientData.lastNotifiedTime === currentStart || 
+    patientData.lastUpdatedBy === "system" || 
+    patientData.lastUpdatedBy === "user"
+  ) {
+    continue; 
+  }
 
-      // DOCTOR MOVE DETECTED: Time changed but metadata still has the old time.
-      
-      // Cleanup destination slot
-      const overlaps = await calendar.events.list({
-        calendarId: CALENDAR_ID,
-        timeMin: currentStart,
-        timeMax: event.end?.dateTime!,
-        singleEvents: true
-      });
-      const ghost = overlaps.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
-      if (ghost?.id) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id });
+  // If we reached here, it MUST be a manual Doctor drag/drop.
+  
+  // 1. Cleanup destination
+  const overlaps = await calendar.events.list({
+    calendarId: CALENDAR_ID,
+    timeMin: currentStart,
+    timeMax: event.end?.dateTime!,
+    singleEvents: true
+  });
+  const ghost = overlaps.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
+  if (ghost?.id) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id });
 
-      const timeStr = new Date(currentStart).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
-      const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
+  // 2. Patch the event (Updates time, resets reschedule credit to false, tags as 'doctor')
+  await calendar.events.patch({
+    calendarId: CALENDAR_ID,
+    eventId: event.id!,
+    requestBody: {
+      description: JSON.stringify({ 
+        ...patientData, 
+        lastNotifiedTime: currentStart, 
+        rescheduled: false, 
+        lastUpdatedBy: 'doctor' 
+      })
+    }
+  });
 
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: patientData.email,
-        subject: `Appointment Update - Dr. Dixit Ayurveda`,
-        html: `<p>Namaste ${patientData.name}, the doctor moved your session to: <b>${timeStr}</b></p>
-               <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a> | <a href="${reschedUrl}">Reschedule Link</a></p>`
-      });
-
-      // Update metadata to sync the "notified time" with the "current time"
-      await calendar.events.patch({
-        calendarId: CALENDAR_ID,
-        eventId: event.id!,
-        requestBody: {
-          description: JSON.stringify({ ...patientData, lastNotifiedTime: currentStart, rescheduled: false, lastUpdatedBy: 'doctor' })
-        }
-      });
+  // 3. Email the patient
+  const timeStr = new Date(currentStart).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
+  const reschedUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/consultation?reschedule=${event.id}`;
+  
+  await transporter.sendMail({
+    from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+    to: patientData.email,
+    subject: `Appointment Update - Dr. Dixit Ayurveda`,
+    html: `<p>Namaste ${patientData.name}, the doctor moved your session to: <b>${timeStr}</b></p>
+           <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a> | <a href="${reschedUrl}">Reschedule Link</a></p>`
+  });
     }
     return new Response('OK', { status: 200 });
   } catch (error: any) {
