@@ -67,7 +67,7 @@ const bookingId = payment.notes?.booking_id;
     await transporter.sendMail({
       from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
       to: patientData.email,
-      subject: `Consultation Confirmed - ${patientData.name}`,
+      subject: `Consultation Confirmed - $Dr. Dixit Ayurveda`,
       html: `
         <div style="font-family: sans-serif; color: #123025; max-width: 600px;">
           <h2>Namaste ${patientData.name},</h2>
