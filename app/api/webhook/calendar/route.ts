@@ -86,9 +86,17 @@ export async function POST(req: Request) {
     timeMax: event.end?.dateTime!,
     singleEvents: true
   });
-  const ghost = overlaps.data.items?.find(e => e.summary === 'Available' && e.id !== event.id);
-  if (ghost?.id) await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id });
+  // Use .filter() to get EVERY available slot in that range
+const ghosts = overlaps.data.items?.filter(e => 
+  e.summary === 'Available' && e.id !== event.id
+) || [];
 
+// Delete them all one by one
+for (const ghost of ghosts) {
+  if (ghost.id) {
+    await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: ghost.id });
+  }
+}
   // 2. Patch the event (Updates time, resets reschedule credit to false, tags as 'doctor')
   await calendar.events.patch({
     calendarId: CALENDAR_ID,

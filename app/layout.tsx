@@ -18,11 +18,16 @@ export const metadata: Metadata = {
     template: "%s | Prof. Mahesh Dixit"
   },
   description: "Consult with Prof. Mahesh Dixit, a renowned Ayurvedic surgeon in Rajasthan with 30+ years of experience in Shalya Tantra (Ayurvedic Surgery), Ksharsutra, and Agnikarma.",
-  keywords: ["Ayurvedic Surgeon", "Shalya Tantra", "Mahesh Dixit", "Ksharsutra", "Ayurveda Consultation India", "Expert Ayurvedic Consultant", "Expert Ayurvedic Doctor", "Udaipur"],
+  keywords: ["Ayurvedic Surgeon", "Shalya Tantra", "Mahesh Dixit", "Ksharsutra", "Ayurveda Consultation India", "Expert Ayurvedic Consultant", "Expert Ayurvedic Doctor", "Best Ayurvedic doctor Udaipur", "Best Ayurvedic consultant online", "Ayurveda doctor for online consultation","Ayurveda Online Consultation", "Ayurveda Surgery Expert", "Ayurvedic Treatment Specialist", "Ayurvedic Doctor in Rajasthan"],
   authors: [{ name: "Prof. Mahesh Dixit" }],
   creator: "Prof. Mahesh Dixit",
   icons: {
-    icon: "/favicon.ico", // Ensure you have a favicon in /public
+    icon: [
+      {
+        url: '/icon.svg',
+        type: 'image/svg+xml',
+      },
+    ],
   },
   // Canonical helps SEO avoid duplicate content issues between en/hi
   alternates: {

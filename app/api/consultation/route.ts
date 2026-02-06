@@ -67,6 +67,11 @@ export async function GET(req: Request) {
         }
       }
     }
+    availableSlots.sort((a, b) => {
+      const timeA = new Date(a.start?.dateTime || 0).getTime();
+      const timeB = new Date(b.start?.dateTime || 0).getTime();
+      return timeA - timeB;
+    })
     return Response.json({ slots: availableSlots });
   } catch (error) { return Response.json({ slots: [] }, { status: 500 }); }
 }
