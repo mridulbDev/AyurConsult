@@ -65,6 +65,7 @@ export async function POST(req: Request) {
   if (!currentStart) {console.log("Invalid start time for event:", event.summary); continue; }
  
   if (patientData.lastNotifiedTime === currentStart) {
+      console.log("Skipping: Time hasn't changed since last notification.",patientData.lastNotifiedTime ,currentStart);
     if (patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user") {
         console.log("Skipping: Time hasn't changed and last update was non-doctor.");
         continue;
