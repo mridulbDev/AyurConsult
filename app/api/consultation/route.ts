@@ -80,14 +80,20 @@ export async function POST(req: Request) {
       });
 
       const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
-      await transporter.sendMail({
-        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-        to: patientData.email,
-        subject: `Reschedule Successful`,
-        html: `<p>New Time: <b>${new Date(start!).toLocaleString('en-IN')}</b></p>`
-
-
-      });
+      // Replace your existing transporter.sendMail line with this:
+await transporter.sendMail({
+  from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+  to: patientData.email,
+  subject: `Reschedule Successful`,
+  html: `<p>Namaste ${patientData.name},</p>
+         <p>Your appointment has been rescheduled successfully.</p>
+         <p>New Time: <b>${new Date(start!).toLocaleString('en-IN', {
+           timeZone: 'Asia/Kolkata',
+           dateStyle: 'full',
+           timeStyle: 'short'
+         })}</b></p>
+         <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting Link</a></p>`
+});
 
       return Response.json({ success: true, eventId: eventId });
     }

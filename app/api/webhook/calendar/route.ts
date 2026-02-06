@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       });
 
       for (const slot of (pastSlots.data.items || [])) {
-        if (slot.summary === 'Available' || slot.summary?.startsWith('PENDING')) {
+        if (slot.summary === 'Available' ) {
           await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
         }
       }
@@ -61,6 +61,9 @@ export async function POST(req: Request) {
 
   const currentStart = event.start?.dateTime;
   if (!currentStart) continue;
+  if (patientData.lastUpdatedBy === "user" && patientData.lastNotifiedTime === currentStart) {
+    continue; 
+  }
 
   // --- THE ONLY CHECK YOU NEED ---
   // If the time in the calendar matches our "lastNotifiedTime", 
