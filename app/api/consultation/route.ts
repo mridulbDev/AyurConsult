@@ -81,11 +81,11 @@ export async function POST(req: Request) {
 
       const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
       // Replace your existing transporter.sendMail line with this:
-await transporter.sendMail({
-  from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
-  to: patientData.email,
-  subject: `Reschedule Successful`,
-  html: `<p>Namaste ${patientData.name},</p>
+      await transporter.sendMail({
+        from: `"Dr. Dixit Ayurveda" <${process.env.DOCTOR_EMAIL}>`,
+        to: patientData.email,
+        subject: `Reschedule Successful`,
+        html: `<p>Namaste ${patientData.name},</p>
          <p>Your appointment has been rescheduled successfully.</p>
          <p>New Time: <b>${new Date(start!).toLocaleString('en-IN', {
            timeZone: 'Asia/Kolkata',
