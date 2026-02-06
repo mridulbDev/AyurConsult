@@ -64,13 +64,14 @@ export async function POST(req: Request) {
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       if (oldData.rescheduled === true) return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
+      await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
 
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
 
-      await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
+      
 
-      const updatedDesc = JSON.stringify({ ...oldData, ...patientData, rescheduled: true, lastUpdatedBy: 'user', lastNotifiedTime: start });
+      const updatedDesc = JSON.stringify({ ...patientData, rescheduled: true, lastUpdatedBy: 'user', lastNotifiedTime: start });
 
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
 
       });
 
-      return Response.json({ success: true });
+      return Response.json({ success: true, eventId: eventId });
     }
 
     const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'system' });

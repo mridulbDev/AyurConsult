@@ -106,7 +106,7 @@ function ConsultationContent() {
       }
 
       if (rescheduleId) {
-        // Successful Reschedule skips payment
+        setSelectedSlot({ ...selectedSlot, id: data.newBookingId });
         setStep(3);
       } else {
         // Normal Flow: Open Razorpay
