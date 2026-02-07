@@ -56,7 +56,7 @@ export async function POST(req: Request) {
     });
 
     for (const event of changes) {
-      if (event.status === 'cancelled' || !event.summary?.includes('CONFIRMED') || !event.description || event.summary?.startsWith('PENDING')){console.log("Processing Event:", event.summary);continue; }
+      if (event.status === 'cancelled' || event.summary?.includes('Available') || !event.description || event.summary?.startsWith('PENDING')){console.log("Processing Event:", event.description || event.summary);continue; }
       
       let patientData;
   try { patientData = JSON.parse(event.description || '{}'); } catch { continue; }
@@ -64,9 +64,14 @@ export async function POST(req: Request) {
   const currentStart = event.start?.dateTime;
   if (!currentStart) {console.log("Invalid start time for event:", event.summary); continue; }
  
-    if (patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user" || patientData.lastNotifiedTime === currentStart ) {
+    if ( patientData.lastNotifiedTime === currentStart ) {
         console.log("Skipping: Time hasn't changed and last update was non-doctor.");
-        continue;
+        
+        if (patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user") {
+
+          console.log("Skipping because last update was by system/user:", patientData.lastUpdatedBy);
+          continue;
+        }
     }
   
   // If we reached here, it MUST be a manual Doctor drag/drop.
