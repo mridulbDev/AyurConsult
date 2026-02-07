@@ -37,8 +37,8 @@ export async function POST(req: Request) {
       console.log("Running Daily Sweep: Cleaning up past Available slots...");
       const pastSlots = await calendar.events.list({
         calendarId: CALENDAR_ID,
-        timeMin: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-        timeMax: now.toISOString(), // Up to right now
+        timeMin: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago
+        timeMax: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
         singleEvents: true,
       });
 
@@ -64,13 +64,11 @@ export async function POST(req: Request) {
   const currentStart = event.start?.dateTime;
   if (!currentStart) {console.log("Invalid start time for event:", event.summary); continue; }
  
-  if (patientData.lastNotifiedTime === currentStart) {
-      console.log("Skipping: Time hasn't changed since last notification.",patientData.lastNotifiedTime ,currentStart);
-    if (patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user") {
+    if (patientData.lastUpdatedBy === "system" || patientData.lastUpdatedBy === "user" || patientData.lastNotifiedTime === currentStart ) {
         console.log("Skipping: Time hasn't changed and last update was non-doctor.");
         continue;
     }
-}    
+  
   // If we reached here, it MUST be a manual Doctor drag/drop.
   
   // 1. Cleanup destination
