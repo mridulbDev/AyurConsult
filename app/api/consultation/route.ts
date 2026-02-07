@@ -62,6 +62,7 @@ export async function GET(req: Request) {
           await calendar.events.patch({
             calendarId: CALENDAR_ID,
             eventId: ev.id!,
+            sendUpdates: 'none',
             requestBody: { summary: 'Available', description: '', location: '' }
           });
           availableSlots.push(ev);
@@ -102,7 +103,7 @@ export async function POST(req: Request) {
         console.log("Reschedule TRUe",oldData.rescheduled);
         return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
       }
-      await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
+      await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId,sendUpdates: 'none', requestBody: { summary: 'Available', description: '', location: '' } });
 
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
       const start = newSlot.data.start?.dateTime;
@@ -139,7 +140,7 @@ await transporter.sendMail({
     }
 
     const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'system' });
-    await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
+    await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, sendUpdates: 'none',requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
 
     const rzp = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
