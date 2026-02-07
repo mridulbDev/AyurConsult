@@ -89,15 +89,17 @@ export async function POST(req: Request) {
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       if (oldEvent.data.summary === 'Available') {
-    return Response.json({ error: "This link has already been used." }, { status: 410 });
-  }
-  console.log("Old Event Data:", oldData.data.summary, oldData.rescheduled, oldData.lastUpdatedBy);
+        console.log("Reschedule Failed: Original slot is already available.");
+        return Response.json({ error: "This link has already been used." }, { status: 410 });
+      }
+      console.log("Old Event Data:", oldData.summary, oldData.rescheduled, oldData.lastUpdatedBy);
   
 
 
   // If the doctor moved the event or it's a second-gen move, 
   // the flag will be here.
   if (oldData.rescheduled === true) {
+    console.log("Reschedule TRUe");
     return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
   }
       await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
