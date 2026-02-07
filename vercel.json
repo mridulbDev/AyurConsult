@@ -5,7 +5,7 @@
       "schedule": "0 0 */5 * *"
     },
     {
-      "path": "/api/cal_cleanup",
+      "path": "/api/cleanup",
       "schedule": "0 23 * * *"
       
     }
