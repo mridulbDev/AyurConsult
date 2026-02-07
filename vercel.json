@@ -6,8 +6,8 @@
     },
     {
       "path": "/api/cal_cleanup",
-      "schedule": "50 22 * * *",
-      "description": "Runs at 10:50 PM UTC, which is 4:20 AM IST"
+      "schedule": "0 23 * * *"
+      
     }
   ]
 }
