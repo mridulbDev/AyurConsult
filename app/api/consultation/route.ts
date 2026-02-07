@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import nodemailer from 'nodemailer';
 import { Redis } from '@upstash/redis';
+import { log } from 'console';
 
 const redis = Redis.fromEnv();
 const auth = new google.auth.JWT({
@@ -80,15 +81,17 @@ export async function POST(req: Request) {
   try {
     const { eventId, patientData, rescheduleId } = await req.json();
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    console.log("Received booking request for event ID:", eventId, "Reschedule ID:", rescheduleId);
 
     if (rescheduleId) {
+      console.log("Received booking request for event ID:", eventId, "Reschedule ID:", rescheduleId);
       const oldEvent = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: rescheduleId });
       const oldData = JSON.parse(oldEvent.data.description || '{}');
 
       if (oldEvent.data.summary === 'Available') {
     return Response.json({ error: "This link has already been used." }, { status: 410 });
   }
-
+  console.log("Old Event Data:", oldData.data.summary, oldData.rescheduled, oldData.lastUpdatedBy);
   
 
 
