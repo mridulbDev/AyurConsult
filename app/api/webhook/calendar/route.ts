@@ -119,18 +119,7 @@ for (const ghost of ghosts) {
     html: `<p>Namaste ${patientData.name}, the doctor moved your session to: <b>${timeStr}</b></p>
            <p><a href="${process.env.NEXT_PUBLIC_MEET_LINK}">Join Meeting</a> | <a href="${reschedUrl}">Reschedule Link</a></p>`
   });
-  await calendar.events.patch({
-    calendarId: CALENDAR_ID,
-    eventId: event.id!,
-    requestBody: {
-      description: JSON.stringify({ 
-        ...patientData, 
-        lastNotifiedTime: currentStart, 
-        rescheduled: false, 
-        lastUpdatedBy: '' 
-      })
-    }
-  });
+  
     }
     return new Response('OK', { status: 200 });
   } catch (error: any) {
