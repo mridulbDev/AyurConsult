@@ -29,40 +29,7 @@ export async function POST(req: Request) {
     }
 
     const changes = response.data.items || [];
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
     
-    // Reset "today" to midnight for a clean date comparison
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    // 1. CLEANUP & FADE LOGIC
-    const pastSlots = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      timeMin: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days back
-      timeMax: now.toISOString(), // Up to right now
-      singleEvents: true,
-    });
-
-    for (const slot of (pastSlots.data.items || [])) {
-      const isAvailable = slot.summary === 'Available';
-      const isPending = slot.summary?.startsWith('PENDING');
-      const isConfirmed = slot.summary?.includes('CONFIRMED');
-
-      // DELETE past junk
-      if (isAvailable || isPending) {
-        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
-        continue;
-      }
-
-      // FADE past confirmed (Color 8 is Graphite/Gray)
-      if (isConfirmed && slot.colorId !== '8') {
-        await calendar.events.patch({
-          calendarId: CALENDAR_ID,
-          eventId: slot.id!,
-          requestBody: { colorId: '8' }
-        });
-      }
-    }
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS }

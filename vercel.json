@@ -3,6 +3,10 @@
     {
       "path": "/api/webhook/calendar/setup",
       "schedule": "0 0 */5 * *"
+    },
+    {
+      "path": "/api/cal_cleanup",
+      "schedule": "15 4 * * *"
     }
   ]
 }
