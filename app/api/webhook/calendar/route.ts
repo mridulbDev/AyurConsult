@@ -31,24 +31,37 @@ export async function POST(req: Request) {
     const changes = response.data.items || [];
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
-    const lastCleanup = await redis.get(`last_cleanup_${todayStr}`);
+    
+    // Reset "today" to midnight for a clean date comparison
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    if (!lastCleanup) {
-      console.log("Running Daily Sweep: Cleaning up past Available slots...");
-      const pastSlots = await calendar.events.list({
-        calendarId: CALENDAR_ID,
-        timeMin: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago
-        timeMax: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-        singleEvents: true,
-      });
+    // 1. CLEANUP & FADE LOGIC
+    const pastSlots = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString(), // 14 days back
+      timeMax: now.toISOString(), // Up to right now
+      singleEvents: true,
+    });
 
-      for (const slot of (pastSlots.data.items || [])) {
-        if (slot.summary === 'Available' ) {
-          await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
-        }
+    for (const slot of (pastSlots.data.items || [])) {
+      const isAvailable = slot.summary === 'Available';
+      const isPending = slot.summary?.startsWith('PENDING');
+      const isConfirmed = slot.summary?.includes('CONFIRMED');
+
+      // DELETE past junk
+      if (isAvailable || isPending) {
+        await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: slot.id! });
+        continue;
       }
-      // Mark as done for today so we don't repeat this for every single webhook hit
-      await redis.set(`last_cleanup_${todayStr}`, 'done', { ex: 86400 }); 
+
+      // FADE past confirmed (Color 8 is Graphite/Gray)
+      if (isConfirmed && slot.colorId !== '8') {
+        await calendar.events.patch({
+          calendarId: CALENDAR_ID,
+          eventId: slot.id!,
+          requestBody: { colorId: '8' }
+        });
+      }
     }
     const transporter = nodemailer.createTransport({
       service: 'gmail',

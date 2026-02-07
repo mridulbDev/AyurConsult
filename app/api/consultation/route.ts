@@ -98,10 +98,10 @@ export async function POST(req: Request) {
 
   // If the doctor moved the event or it's a second-gen move, 
   // the flag will be here.
-  if (oldData.rescheduled === true) {
-    console.log("Reschedule TRUe",oldData.rescheduled);
-    return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
-  }
+      if (oldData.rescheduled === true) {
+        console.log("Reschedule TRUe",oldData.rescheduled);
+        return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
+      }
       await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
 
       const newSlot = await calendar.events.get({ calendarId: CALENDAR_ID, eventId: eventId });
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       await calendar.events.patch({
         calendarId: CALENDAR_ID,
         eventId: eventId,
-        requestBody: { summary: `CONFIRMED (Rescheduled): ${patientData.name}`, location: process.env.NEXT_PUBLIC_MEET_LINK, description: updatedDesc }
+        requestBody: { summary: `CONFIRMED (Rescheduled): ${patientData.name}`,colorId: '10', location: process.env.NEXT_PUBLIC_MEET_LINK, description: updatedDesc }
       });
 
       const transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.DOCTOR_EMAIL, pass: process.env.EMAIL_PASS } });
