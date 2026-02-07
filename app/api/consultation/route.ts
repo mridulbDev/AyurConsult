@@ -140,7 +140,7 @@ await transporter.sendMail({
     }
 
     const pendingPayload = JSON.stringify({ ...patientData, pendingAt: Date.now(), rescheduled: false, lastUpdatedBy: 'system' });
-    await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, sendUpdates: 'none',requestBody: { summary: `PENDING: ${patientData.name}`, description: pendingPayload } });
+    await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: eventId, sendUpdates: 'none',requestBody: { summary: `PENDING: ${patientData.name}`, colorId: '10',description: pendingPayload } });
 
     const rzp = await fetch('https://api.razorpay.com/v1/orders', {
       method: 'POST',
