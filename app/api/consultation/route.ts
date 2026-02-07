@@ -99,7 +99,7 @@ export async function POST(req: Request) {
   // If the doctor moved the event or it's a second-gen move, 
   // the flag will be here.
   if (oldData.rescheduled === true) {
-    console.log("Reschedule TRUe");
+    console.log("Reschedule TRUe",oldData.rescheduled);
     return Response.json({ error: "One-time reschedule limit reached." }, { status: 400 });
   }
       await calendar.events.patch({ calendarId: CALENDAR_ID, eventId: rescheduleId, requestBody: { summary: 'Available', description: '', location: '' } });
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       const start = newSlot.data.start?.dateTime;
 
       
-
+      
       const updatedDesc = JSON.stringify({ ...patientData, rescheduled: true, lastUpdatedBy: 'user', lastNotifiedTime: start });
 
       await calendar.events.patch({
