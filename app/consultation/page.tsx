@@ -258,7 +258,7 @@ function ConsultationContent() {
                   <div className="space-y-8 animate-in fade-in duration-500">
                     <div className="space-y-3">
                       <label className="text-forest font-serif text-xl flex items-center gap-2"><CalIcon size={20} className="text-saffron" /> {lang === 'en' ? '1. Choose Date' : '१. तारीख चुनें'}</label>
-                      <input type="date" min={new Date().toISOString().split('T')[0]} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-4 rounded-xl border border-forest/10 bg-white/50 outline-none" />
+                      <input type="date" min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })} value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-4 rounded-xl border border-forest/10 bg-white/50 outline-none" />
                     </div>
                     <div className="space-y-3">
                       <label className="text-forest font-serif text-xl flex items-center gap-2"><Clock size={20} className="text-saffron" /> {lang === 'en' ? '2. Available Slots' : '२. उपलब्ध समय'}</label>
